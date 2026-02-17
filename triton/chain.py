@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+from decimal import Decimal
 from http import HTTPStatus
 from pathlib import Path
 from typing import cast
@@ -61,17 +62,14 @@ def load_contract(
     return contract
 
 
-def get_wrapped_native_balance(address: str, chain: ChainType) -> float:
+def get_wrapped_native_balance(address: str, chain: ChainType):
     """Get the wrapped native balance"""
-    return (
-        load_contract(WRAPPED_NATIVE_ASSET[chain], "erc20", has_abi_key=False)
-        .functions.balanceOf(address)
-        .call()
-        / 10
-        ** load_contract(WRAPPED_NATIVE_ASSET[chain], "erc20", has_abi_key=False)
-        .functions.decimals()
-        .call()
+    wrapped_native_contract = load_contract(
+        WRAPPED_NATIVE_ASSET[chain], "erc20", has_abi_key=False
     )
+    wrapped_native_balance = wrapped_native_contract.functions.balanceOf(address).call()
+    wrapped_native_decimals = wrapped_native_contract.functions.decimals().call()
+    return Decimal(wrapped_native_balance) / (Decimal(10) ** wrapped_native_decimals)
 
 
 def get_olas_balance(address: str):
