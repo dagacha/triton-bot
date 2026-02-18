@@ -1,12 +1,15 @@
 """Tests for triton.chain module"""
 import datetime
+from decimal import Decimal
 from http import HTTPStatus
 from unittest.mock import Mock, patch, MagicMock, mock_open
 import pytz
+from operate.operate_types import Chain
 from web3.exceptions import ABIFunctionNotFound
 
 from triton.chain import (
     get_native_balance,
+    get_wrapped_native_balance,
     load_contract,
     get_olas_balance,
     get_mech_request_count,
@@ -63,6 +66,30 @@ class TestLoadContract:
             address="0x1234567890abcdef1234567890abcdef12345678",
             abi=[{"name": "test"}]
         )
+
+
+class TestGetWrappedNativeBalance:
+    """Tests for get_wrapped_native_balance function"""
+
+    @patch('triton.chain.load_contract')
+    def test_get_wrapped_native_balance_uses_token_decimals(
+        self, mock_load_contract
+    ):
+        """Test wrapped native balance is converted using ERC20 decimals."""
+        mock_contract = MagicMock()
+        mock_contract.functions.balanceOf.return_value.call.return_value = 300000
+        mock_contract.functions.decimals.return_value.call.return_value = 6
+        mock_load_contract.return_value = mock_contract
+
+        result = get_wrapped_native_balance(
+            "0x1234567890abcdef1234567890abcdef12345678", Chain.GNOSIS
+        )
+
+        assert result == Decimal("0.3")
+        mock_contract.functions.balanceOf.assert_called_once_with(
+            "0x1234567890abcdef1234567890abcdef12345678"
+        )
+        mock_contract.functions.decimals.assert_called_once_with()
     
     @patch('builtins.open', new_callable=mock_open, read_data='[{"name": "test"}]')
     @patch('triton.chain.web3')
