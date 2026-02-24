@@ -66,27 +66,35 @@ def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
     ) -> None:
         try:
             messages = []
+            errors = []
             total_rewards = 0.0
             master_safe_olas = 0.0
             agent_safe_olas = 0.0
             master_safe_addresses: set[str] = set()
             for service_name, service in services.items():
-                status = service.get_staking_status()
-                total_rewards += float(status["accrued_rewards"].split(" ")[0])
-                balances = service.check_balance()
-                master_safe_address = service.master_wallet.safes[
-                    Chain.from_string(service.service.home_chain)  # type: ignore[attr-defined]
-                ]
-                if master_safe_address not in master_safe_addresses:
-                    master_safe_addresses.add(master_safe_address)
-                    master_safe_olas += balances["master_safe_olas_balance"]
-                agent_safe_olas += balances["service_safe_olas_balance"]
-                messages.append(
-                    f"[{service_name}] {status['accrued_rewards']} "
-                    f"""[{status['mech_requests_this_epoch']}/{status['required_mech_requests']}]
+                try:
+                    status = service.get_staking_status()
+                    total_rewards += float(status["accrued_rewards"].split(" ")[0])
+                    balances = service.check_balance()
+                    master_safe_address = service.master_wallet.safes[
+                        Chain.from_string(service.service.home_chain)  # type: ignore[attr-defined]
+                    ]
+                    if master_safe_address not in master_safe_addresses:
+                        master_safe_addresses.add(master_safe_address)
+                        master_safe_olas += balances["master_safe_olas_balance"]
+                    agent_safe_olas += balances["service_safe_olas_balance"]
+                    messages.append(
+                        f"[{service_name}] {status['accrued_rewards']} "
+                        f"""[{status['mech_requests_this_epoch']}/{status['required_mech_requests']}]
 Staking program: {status['metadata']['name']}
 Next epoch: {status['epoch_end']}"""
-                )
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.error(
+                        "Failed to get staking status for %s", service_name, exc_info=exc
+                    )
+                    errors.append(f"[{service_name}] Error: {exc}")
+                    continue
 
             combined_rewards = total_rewards + master_safe_olas + agent_safe_olas
             olas_price = get_olas_price()
@@ -104,6 +112,8 @@ Next epoch: {status['epoch_end']}"""
             if rewards_value:
                 message += f" [${rewards_value:g}]"
             messages.append(message)
+            if errors:
+                messages.append("\n".join(errors))
 
             if update.message is None:
                 logger.error("Cannot send message, update.message is None")
