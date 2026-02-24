@@ -64,174 +64,190 @@ def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        messages = []
-        total_rewards = 0.0
-        master_safe_olas = 0.0
-        agent_safe_olas = 0.0
-        master_safe_addresses: set[str] = set()
-        for service_name, service in services.items():
-            status = service.get_staking_status()
-            total_rewards += float(status["accrued_rewards"].split(" ")[0])
-            balances = service.check_balance()
-            master_safe_address = service.master_wallet.safes[
-                Chain.from_string(service.service.home_chain)  # type: ignore[attr-defined]
-            ]
-            if master_safe_address not in master_safe_addresses:
-                master_safe_addresses.add(master_safe_address)
-                master_safe_olas += balances["master_safe_olas_balance"]
-            agent_safe_olas += balances["service_safe_olas_balance"]
-            messages.append(
-                f"[{service_name}] {status['accrued_rewards']} "
-                f"""[{status['mech_requests_this_epoch']}/{status['required_mech_requests']}]
+        try:
+            messages = []
+            total_rewards = 0.0
+            master_safe_olas = 0.0
+            agent_safe_olas = 0.0
+            master_safe_addresses: set[str] = set()
+            for service_name, service in services.items():
+                status = service.get_staking_status()
+                total_rewards += float(status["accrued_rewards"].split(" ")[0])
+                balances = service.check_balance()
+                master_safe_address = service.master_wallet.safes[
+                    Chain.from_string(service.service.home_chain)  # type: ignore[attr-defined]
+                ]
+                if master_safe_address not in master_safe_addresses:
+                    master_safe_addresses.add(master_safe_address)
+                    master_safe_olas += balances["master_safe_olas_balance"]
+                agent_safe_olas += balances["service_safe_olas_balance"]
+                messages.append(
+                    f"[{service_name}] {status['accrued_rewards']} "
+                    f"""[{status['mech_requests_this_epoch']}/{status['required_mech_requests']}]
 Staking program: {status['metadata']['name']}
 Next epoch: {status['epoch_end']}"""
+                )
+
+            combined_rewards = total_rewards + master_safe_olas + agent_safe_olas
+            olas_price = get_olas_price()
+            rewards_value = combined_rewards * olas_price if olas_price else None
+            message = f"Total rewards = {combined_rewards:g} OLAS"
+            breakdown_parts = []
+            if total_rewards:
+                breakdown_parts.append(f"{total_rewards:g} accrued")
+            if agent_safe_olas:
+                breakdown_parts.append(f"{agent_safe_olas:g} in agent safes")
+            if master_safe_olas:
+                breakdown_parts.append(f"{master_safe_olas:g} in master safes")
+            if breakdown_parts:
+                message += " (" + " + ".join(breakdown_parts) + ")"
+            if rewards_value:
+                message += f" [${rewards_value:g}]"
+            messages.append(message)
+
+            if update.message is None:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            await update.message.reply_text(text=("\n\n").join(messages))
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(
+                context=context, update=update, where="staking_status", exc=exc
             )
-
-        combined_rewards = total_rewards + master_safe_olas + agent_safe_olas
-        olas_price = get_olas_price()
-        rewards_value = combined_rewards * olas_price if olas_price else None
-        message = f"Total rewards = {combined_rewards:g} OLAS"
-        breakdown_parts = []
-        if total_rewards:
-            breakdown_parts.append(f"{total_rewards:g} accrued")
-        if agent_safe_olas:
-            breakdown_parts.append(f"{agent_safe_olas:g} in agent safes")
-        if master_safe_olas:
-            breakdown_parts.append(f"{master_safe_olas:g} in master safes")
-        if breakdown_parts:
-            message += " (" + " + ".join(breakdown_parts) + ")"
-        if rewards_value:
-            message += f" [${rewards_value:g}]"
-        messages.append(message)
-
-        if update.message is None:
-            logger.error("Cannot send message, update.message is None")
-            return
-
-        await update.message.reply_text(text=("\n\n").join(messages))
 
     async def balance(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ):  # pylint: disable=unused-argument
-        messages = []
-        for service_name, service in services.items():
-            balances = service.check_balance()
-            agent_native_balance = balances["agent_eoa_native_balance"]
-            safe_native_balance = balances["service_safe_native_balance"]
-            safe_wrapped_native_balance = balances[
-                "service_safe_wrapped_native_balance"
-            ]
-            safe_olas_balance = balances["service_safe_olas_balance"]
-            master_eoa_native_balance = balances["master_eoa_native_balance"]
-            master_safe_native_balance = balances["master_safe_native_balance"]
-            master_safe_olas_balance = balances["master_safe_olas_balance"]
+        try:
+            messages = []
+            for service_name, service in services.items():
+                balances = service.check_balance()
+                agent_native_balance = balances["agent_eoa_native_balance"]
+                safe_native_balance = balances["service_safe_native_balance"]
+                safe_wrapped_native_balance = balances[
+                    "service_safe_wrapped_native_balance"
+                ]
+                safe_olas_balance = balances["service_safe_olas_balance"]
+                master_eoa_native_balance = balances["master_eoa_native_balance"]
+                master_safe_native_balance = balances["master_safe_native_balance"]
+                master_safe_olas_balance = balances["master_safe_olas_balance"]
 
-            if service.master_wallet.safes is None:
-                raise ValueError("Master wallet safes not found")
+                if service.master_wallet.safes is None:
+                    raise ValueError("Master wallet safes not found")
 
-            message = (
-                r"\["
-                + escape_markdown_v2(service_name)
-                + r"]"
-                + f"\n[Agent EOA]({GNOSISSCAN_ADDRESS_URL.format(address=service.agent_address)}) = {agent_native_balance:g} xDAI"  # noqa: E501
-                + f"\n[Service Safe]({GNOSISSCAN_ADDRESS_URL.format(address=service.service_safe)}) = {safe_native_balance:g} xDAI  {safe_wrapped_native_balance:g} wxDAI  {safe_olas_balance:g} OLAS"  # noqa: E501
-                + f"\n[Master EOA]({GNOSISSCAN_ADDRESS_URL.format(address=service.master_wallet.crypto.address)}) = {master_eoa_native_balance:g} xDAI"  # noqa: E501
-                + f"\n[Master Safe]({GNOSISSCAN_ADDRESS_URL.format(address=service.master_wallet.safes[Chain.from_string(service.service.home_chain)])}) = {master_safe_native_balance:g} xDAI  {master_safe_olas_balance:g} OLAS"  # type: ignore[attr-defined]  # noqa: E501
+                message = (
+                    r"\["
+                    + escape_markdown_v2(service_name)
+                    + r"]"
+                    + f"\n[Agent EOA]({GNOSISSCAN_ADDRESS_URL.format(address=service.agent_address)}) = {agent_native_balance:g} xDAI"  # noqa: E501
+                    + f"\n[Service Safe]({GNOSISSCAN_ADDRESS_URL.format(address=service.service_safe)}) = {safe_native_balance:g} xDAI  {safe_wrapped_native_balance:g} wxDAI  {safe_olas_balance:g} OLAS"  # noqa: E501
+                    + f"\n[Master EOA]({GNOSISSCAN_ADDRESS_URL.format(address=service.master_wallet.crypto.address)}) = {master_eoa_native_balance:g} xDAI"  # noqa: E501
+                    + f"\n[Master Safe]({GNOSISSCAN_ADDRESS_URL.format(address=service.master_wallet.safes[Chain.from_string(service.service.home_chain)])}) = {master_safe_native_balance:g} xDAI  {master_safe_olas_balance:g} OLAS"  # type: ignore[attr-defined]  # noqa: E501
+                )
+
+                messages.append(message)
+
+            if update.message is None:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            await update.message.reply_text(
+                text=("\n\n").join(messages),
+                parse_mode=ParseMode.MARKDOWN,
+                disable_web_page_preview=True,
             )
-
-            messages.append(message)
-
-        if update.message is None:
-            logger.error("Cannot send message, update.message is None")
-            return
-
-        await update.message.reply_text(
-            text=("\n\n").join(messages),
-            parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=True,
-        )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="balance", exc=exc)
 
     async def claim(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ):  # pylint: disable=unused-argument
         """Claim rewards"""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
 
-        if not update.message:
-            logger.error("Cannot send message, update.message is None")
-            return
+            if not MANUAL_CLAIM:
+                await update.message.reply_text(text="Manual claim is disabled")
+                return
 
-        if not MANUAL_CLAIM:
-            await update.message.reply_text(text="Manual claim is disabled")
-            return
+            messages = []
+            for service_name, service in services.items():
+                claimed_amount = service.claim_rewards()
+                if not claimed_amount:
+                    continue
 
-        messages = []
-        for service_name, service in services.items():
-            claimed_amount = service.claim_rewards()
-            if not claimed_amount:
-                continue
+                messages.append(
+                    f"[{service_name}] Claimed {claimed_amount} OLAS rewards into the Master safe."
+                )
 
-            messages.append(
-                f"[{service_name}] Claimed {claimed_amount} OLAS rewards into the Master safe."
+            await update.message.reply_text(
+                text=("\n\n").join(messages) if messages else "No rewards claimed",
             )
-
-        await update.message.reply_text(
-            text=("\n\n").join(messages) if messages else "No rewards claimed",
-        )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="claim", exc=exc)
 
     async def withdraw(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ):  # pylint: disable=unused-argument
         """Withdraw rewards"""
-        if not update.message:
-            logger.error("Cannot send message, update.message is None")
-            return
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
 
-        messages = []
-        for service_name, service in services.items():
-            withdrawals = service.withdraw_rewards()
-            if withdrawals:
-                for tx_hash, value, source in withdrawals:
+            messages = []
+            for service_name, service in services.items():
+                withdrawals = service.withdraw_rewards()
+                if withdrawals:
+                    for tx_hash, value, source in withdrawals:
+                        message = (
+                            r"\["
+                            + escape_markdown_v2(service_name)
+                            + r"] "
+                            + f"Sent the [withdrawal transaction]({GNOSISSCAN_TX_URL.format(tx_hash=tx_hash)}). "
+                            + f"{value:g} OLAS sent from the {source} to [{service.withdrawal_address}]"
+                            + f"({GNOSISSCAN_ADDRESS_URL.format(address=service.withdrawal_address)}) #withdraw"
+                        )
+                else:
                     message = (
                         r"\["
                         + escape_markdown_v2(service_name)
                         + r"] "
-                        + f"Sent the [withdrawal transaction]({GNOSISSCAN_TX_URL.format(tx_hash=tx_hash)}). "
-                        + f"{value:g} OLAS sent from the {source} to [{service.withdrawal_address}]"
-                        + f"({GNOSISSCAN_ADDRESS_URL.format(address=service.withdrawal_address)}) #withdraw"
+                        + "Cannot withdraw rewards"
                     )
-            else:
-                message = (
-                    r"\["
-                    + escape_markdown_v2(service_name)
-                    + r"] "
-                    + "Cannot withdraw rewards"
-                )
 
-            messages.append(message)
+                messages.append(message)
 
-        await update.message.reply_text(
-            text=("\n\n").join(messages),
-            parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=True,
-        )
+            await update.message.reply_text(
+                text=("\n\n").join(messages),
+                parse_mode=ParseMode.MARKDOWN,
+                disable_web_page_preview=True,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="withdraw", exc=exc)
 
     async def slots(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ):  # pylint: disable=unused-argument
-        if not update.message:
-            logger.error("Cannot send message, update.message is None")
-            return
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
 
-        slots = get_slots()
+            slots = get_slots()
 
-        messages = [
-            f"[{contract_name}] {n_slots} available slots"
-            for contract_name, n_slots in slots.items()
-        ]
+            messages = [
+                f"[{contract_name}] {n_slots} available slots"
+                for contract_name, n_slots in slots.items()
+            ]
 
-        await update.message.reply_text(
-            text=("\n").join(messages),
-        )
+            await update.message.reply_text(
+                text=("\n").join(messages),
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="slots", exc=exc)
 
     async def ip_address(  # pylint: disable=unused-argument
         update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -245,32 +261,38 @@ Next epoch: {status['epoch_end']}"""
             logger.error("Failed to get public IP: %s", exc)
             ip = "Unavailable"
 
-        if update.message:
-            await update.message.reply_text(text=f"Public IP address: {ip}")
+        try:
+            if update.message:
+                await update.message.reply_text(text=f"Public IP address: {ip}")
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="ip", exc=exc)
 
     async def scheduled_jobs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not update.message:
-            logger.error("Cannot send message, update.message is None")
-            return
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
 
-        jobs = context.job_queue.jobs() if context.job_queue else []
+            jobs = context.job_queue.jobs() if context.job_queue else []
 
-        if not jobs:
-            await update.message.reply_text("No scheduled jobs")
-            return
+            if not jobs:
+                await update.message.reply_text("No scheduled jobs")
+                return
 
-        message = ""
-        for job in jobs:
-            next_execution = (
-                job.next_t.astimezone(pytz.timezone(LOCAL_TIMEZONE)).strftime(
-                    "%Y-%m-%d %H:%M:%S %Z"
+            message = ""
+            for job in jobs:
+                next_execution = (
+                    job.next_t.astimezone(pytz.timezone(LOCAL_TIMEZONE)).strftime(
+                        "%Y-%m-%d %H:%M:%S %Z"
+                    )
+                    if job.next_t
+                    else "N/A"
                 )
-                if job.next_t
-                else "N/A"
-            )
-            message += f"• {job.name}: {next_execution}\n"
+                message += f"• {job.name}: {next_execution}\n"
 
-        await update.message.reply_text(message)
+            await update.message.reply_text(message)
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="jobs", exc=exc)
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log and notify on unexpected errors."""
@@ -286,64 +308,72 @@ Next epoch: {status['epoch_end']}"""
     # Tasks
     async def start(context: ContextTypes.DEFAULT_TYPE):
         """Start"""
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text="Triton has started",
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                text="Triton has started",
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=None, where="start", exc=exc)
 
     async def balance_check(context: ContextTypes.DEFAULT_TYPE):
-        logger.info("Running balance check task")
-        for service_name, triton_service in services.items():
-            balances = triton_service.check_balance()
-            agent_native_balance = balances["agent_eoa_native_balance"]
-            safe_native_balance = balances["service_safe_native_balance"]
-            safe_wrapped_native_balance = balances[
-                "service_safe_wrapped_native_balance"
-            ]
-            master_safe_native_balance = balances["master_safe_native_balance"]
+        try:
+            logger.info("Running balance check task")
+            for service_name, triton_service in services.items():
+                balances = triton_service.check_balance()
+                agent_native_balance = balances["agent_eoa_native_balance"]
+                safe_native_balance = balances["service_safe_native_balance"]
+                safe_wrapped_native_balance = balances[
+                    "service_safe_wrapped_native_balance"
+                ]
+                master_safe_native_balance = balances["master_safe_native_balance"]
 
-            if triton_service.master_wallet.safes is None:
-                logger.error(
-                    "Master wallet safes not found for service %s", service_name
-                )
-                continue
+                if triton_service.master_wallet.safes is None:
+                    logger.error(
+                        "Master wallet safes not found for service %s", service_name
+                    )
+                    continue
 
-            master_safe_address = triton_service.master_wallet.safes[
-                Chain.from_string(triton_service.service.home_chain)  # type: ignore[attr-defined]
-            ]
+                master_safe_address = triton_service.master_wallet.safes[
+                    Chain.from_string(triton_service.service.home_chain)  # type: ignore[attr-defined]
+                ]
 
-            if agent_native_balance < AGENT_BALANCE_THRESHOLD:
-                message = f"[{service_name}] [Agent EOA]({GNOSISSCAN_ADDRESS_URL.format(address=triton_service.agent_address)}) balance is {agent_native_balance:g} xDAI"  # noqa: E501
-                await context.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=message,
-                    parse_mode=ParseMode.MARKDOWN,
-                    disable_web_page_preview=True,
-                )
+                if agent_native_balance < AGENT_BALANCE_THRESHOLD:
+                    message = f"[{service_name}] [Agent EOA]({GNOSISSCAN_ADDRESS_URL.format(address=triton_service.agent_address)}) balance is {agent_native_balance:g} xDAI"  # noqa: E501
+                    await context.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN,
+                        disable_web_page_preview=True,
+                    )
 
-            if (
-                safe_native_balance + safe_wrapped_native_balance
-                < SAFE_BALANCE_THRESHOLD
-            ):
-                message = f"[{service_name}] [Service Safe]({GNOSISSCAN_ADDRESS_URL.format(address=triton_service.service_safe)}) balance is {safe_native_balance:g} xDAI  {safe_wrapped_native_balance:g} wxDAI"  # noqa: E501
-                await context.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=message,
-                    parse_mode=ParseMode.MARKDOWN,
-                    disable_web_page_preview=True,
-                )
+                if (
+                    safe_native_balance + safe_wrapped_native_balance
+                    < SAFE_BALANCE_THRESHOLD
+                ):
+                    message = f"[{service_name}] [Service Safe]({GNOSISSCAN_ADDRESS_URL.format(address=triton_service.service_safe)}) balance is {safe_native_balance:g} xDAI  {safe_wrapped_native_balance:g} wxDAI"  # noqa: E501
+                    await context.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN,
+                        disable_web_page_preview=True,
+                    )
 
-            if master_safe_native_balance < MASTER_SAFE_BALANCE_THRESHOLD:
-                message = (
-                    f"[{service_name}] [Master Safe]({GNOSISSCAN_ADDRESS_URL.format(address=master_safe_address)}) "
-                    f"balance is {master_safe_native_balance:g} xDAI"
-                )
-                await context.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=message,
-                    parse_mode=ParseMode.MARKDOWN,
-                    disable_web_page_preview=True,
-                )
+                if master_safe_native_balance < MASTER_SAFE_BALANCE_THRESHOLD:
+                    message = (
+                        f"[{service_name}] [Master Safe]({GNOSISSCAN_ADDRESS_URL.format(address=master_safe_address)}) "
+                        f"balance is {master_safe_native_balance:g} xDAI"
+                    )
+                    await context.bot.send_message(
+                        chat_id=CHAT_ID,
+                        text=message,
+                        parse_mode=ParseMode.MARKDOWN,
+                        disable_web_page_preview=True,
+                    )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(
+                context=context, update=None, where="balance_check", exc=exc
+            )
 
     async def post_init(app):
         # await app.bot.set_my_name("Triton")
@@ -362,53 +392,56 @@ Next epoch: {status['epoch_end']}"""
         )
 
     async def autoclaim(context: ContextTypes.DEFAULT_TYPE):
-        logger.info("Running autoclaim task")
+        try:
+            logger.info("Running autoclaim task")
 
-        if not AUTOCLAIM:
-            logger.info("Autoclaim task is disabled")
-            return
+            if not AUTOCLAIM:
+                logger.info("Autoclaim task is disabled")
+                return
 
-        messages = []
+            messages = []
 
-        # Claim
-        for service in services.values():
-            service.claim_rewards()
+            # Claim
+            for service in services.values():
+                service.claim_rewards()
 
-        # Withdraw
-        for service_name, service in services.items():
-            withdrawals = service.withdraw_rewards()
-            if withdrawals:
-                for tx_hash, value, source in withdrawals:
+            # Withdraw
+            for service_name, service in services.items():
+                withdrawals = service.withdraw_rewards()
+                if withdrawals:
+                    for tx_hash, value, source in withdrawals:
+                        message = (
+                            r"\["
+                            + escape_markdown_v2(service_name)
+                            + r"] "
+                            + "(Autoclaim) Sent the [withdrawal transaction]"
+                            + f"({GNOSISSCAN_TX_URL.format(tx_hash=tx_hash)}). "
+                            + f"{value:g} OLAS sent from the {source} to [{service.withdrawal_address}]"
+                            + f"({GNOSISSCAN_ADDRESS_URL.format(address=service.withdrawal_address)}) #withdraw"
+                        )
+                        messages.append(message)
+                else:
                     message = (
                         r"\["
                         + escape_markdown_v2(service_name)
                         + r"] "
-                        + "(Autoclaim) Sent the [withdrawal transaction]"
-                        + f"({GNOSISSCAN_TX_URL.format(tx_hash=tx_hash)}). "
-                        + f"{value:g} OLAS sent from the {source} to [{service.withdrawal_address}]"
-                        + f"({GNOSISSCAN_ADDRESS_URL.format(address=service.withdrawal_address)}) #withdraw"
+                        + "(Autoclaim) Cannot withdraw rewards"
                     )
+
                     messages.append(message)
-            else:
-                message = (
-                    r"\["
-                    + escape_markdown_v2(service_name)
-                    + r"] "
-                    + "(Autoclaim) Cannot withdraw rewards"
-                )
 
-                messages.append(message)
+            if not messages:
+                logger.info("No rewards to withdraw")
+                return
 
-        if not messages:
-            logger.info("No rewards to withdraw")
-            return
-
-        await context.bot.send_message(
-            chat_id=CHAT_ID,
-            text=("\n\n").join(messages),
-            parse_mode=ParseMode.MARKDOWN,
-            disable_web_page_preview=True,
-        )
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                text=("\n\n").join(messages),
+                parse_mode=ParseMode.MARKDOWN,
+                disable_web_page_preview=True,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=None, where="autoclaim", exc=exc)
 
     # Create bot
     app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
@@ -445,3 +478,22 @@ Next epoch: {status['epoch_end']}"""
     # Start
     logger.info("Starting bot")
     app.run_polling()
+    async def report_error(
+        *,
+        context: ContextTypes.DEFAULT_TYPE,
+        update: Update | None,
+        where: str,
+        exc: Exception,
+    ) -> None:
+        """Report errors to logs and Telegram."""
+        logger.error("Error in %s", where, exc_info=exc)
+        message = f"Error in {where}: {exc}"
+        try:
+            if update and update.message:
+                await update.message.reply_text(text=message)
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                text=message,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.error("Failed to send error message to chat", exc_info=True)
