@@ -272,6 +272,17 @@ Next epoch: {status['epoch_end']}"""
 
         await update.message.reply_text(message)
 
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Log and notify on unexpected errors."""
+        logger.error("Unhandled exception while processing update", exc_info=context.error)
+        try:
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                text=f"Unhandled error: {context.error}",
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.error("Failed to send error message to chat", exc_info=True)
+
     # Tasks
     async def start(context: ContextTypes.DEFAULT_TYPE):
         """Start"""
@@ -414,6 +425,7 @@ Next epoch: {status['epoch_end']}"""
     app.add_handler(CommandHandler("slots", slots))
     app.add_handler(CommandHandler("jobs", scheduled_jobs))
     app.add_handler(CommandHandler("ip", ip_address))
+    app.add_error_handler(error_handler)
 
     # Add tasks
     job_queue.run_once(start, when=3)  # in 3 seconds
