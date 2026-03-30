@@ -8,6 +8,11 @@ import traceback
 from typing import List, Optional, Tuple, cast
 
 import dotenv
+from triton.rpc import configure_runtime_rpcs
+
+dotenv.load_dotenv(override=True)
+configure_runtime_rpcs()
+
 from operate.cli import OperateApp
 from operate.data import DATA_DIR
 from operate.data.contracts.mech_activity.contract import MechActivityContract
@@ -25,8 +30,6 @@ from triton.chain import (
     get_staking_status,
     get_wrapped_native_balance,
 )
-
-dotenv.load_dotenv(override=True)
 
 
 class TritonService:
