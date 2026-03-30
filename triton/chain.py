@@ -6,6 +6,8 @@ import json
 import logging
 import math
 import os
+import threading
+import time
 from decimal import Decimal
 from http import HTTPStatus
 from pathlib import Path
@@ -35,9 +37,20 @@ logger = logging.getLogger("chain")
 
 GNOSIS_RPC = os.getenv("GNOSIS_RPC")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
+RPC_TIMEOUT_SECONDS = float(os.getenv("RPC_TIMEOUT_SECONDS", "5"))
+HTTP_CONNECT_TIMEOUT_SECONDS = float(os.getenv("HTTP_CONNECT_TIMEOUT_SECONDS", "5"))
+HTTP_READ_TIMEOUT_SECONDS = float(os.getenv("HTTP_READ_TIMEOUT_SECONDS", "10"))
+PRICE_CACHE_TTL_SECONDS = float(os.getenv("PRICE_CACHE_TTL_SECONDS", "300"))
+METADATA_CACHE_TTL_SECONDS = float(os.getenv("METADATA_CACHE_TTL_SECONDS", "3600"))
 
 # Instantiate the web3 provider and ethereum client
-web3 = Web3(Web3.HTTPProvider(GNOSIS_RPC))
+web3 = Web3(
+    Web3.HTTPProvider(GNOSIS_RPC, request_kwargs={"timeout": RPC_TIMEOUT_SECONDS})
+)
+
+_cache_lock = threading.Lock()
+_price_cache: dict[str, float | None] = {"value": None, "expires_at": 0.0}
+_metadata_cache: dict[str, tuple[float, dict]] = {}
 
 
 def get_native_balance(address: str):
@@ -143,13 +156,7 @@ def get_staking_status(  # pylint: disable=too-many-locals
     )
 
     metadata_hash = staking_token_contract.functions.metadataHash().call().hex()
-    ipfs_address = IPFS_ADDRESS.format(hash=metadata_hash)
-    response = requests.get(ipfs_address, timeout=30)
-    if response.status_code != HTTPStatus.OK:
-        raise requests.RequestException(
-            f"Failed to fetch data from {ipfs_address}: {response.status_code}"
-        )
-    metadata = response.json()
+    metadata = get_staking_metadata(metadata_hash)
 
     return {
         "accrued_rewards": accrued_rewards,
@@ -162,6 +169,11 @@ def get_staking_status(  # pylint: disable=too-many-locals
 
 def get_olas_price() -> float | None:
     """Get OLAS price"""
+    now = time.monotonic()
+    with _cache_lock:
+        if _price_cache["expires_at"] > now:
+            return _price_cache["value"]
+
     url = "https://api.coingecko.com/api/v3/simple/price?" + urlencode(
         {
             "ids": "autonolas",
@@ -170,11 +182,18 @@ def get_olas_price() -> float | None:
         }
     )
     headers = {"accept": "application/json"}
-    response = requests.get(url=url, headers=headers, timeout=30)
+    response = requests.get(
+        url=url,
+        headers=headers,
+        timeout=(HTTP_CONNECT_TIMEOUT_SECONDS, HTTP_READ_TIMEOUT_SECONDS),
+    )
     if response.status_code != 200:
         logger.error(response)
         return None
     price = response.json()["autonolas"]["usd"]
+    with _cache_lock:
+        _price_cache["value"] = price
+        _price_cache["expires_at"] = now + PRICE_CACHE_TTL_SECONDS
     return price
 
 
@@ -190,3 +209,26 @@ def get_slots() -> dict:
         slots[contract_name] = cast(int, contract_data["slots"]) - len(ids)
 
     return slots
+
+
+def get_staking_metadata(metadata_hash: str) -> dict:
+    """Get staking metadata with a small TTL cache."""
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _metadata_cache.get(metadata_hash)
+        if cached and cached[0] > now:
+            return cached[1]
+
+    ipfs_address = IPFS_ADDRESS.format(hash=metadata_hash)
+    response = requests.get(
+        ipfs_address,
+        timeout=(HTTP_CONNECT_TIMEOUT_SECONDS, HTTP_READ_TIMEOUT_SECONDS),
+    )
+    if response.status_code != HTTPStatus.OK:
+        raise requests.RequestException(
+            f"Failed to fetch data from {ipfs_address}: {response.status_code}"
+        )
+    metadata = response.json()
+    with _cache_lock:
+        _metadata_cache[metadata_hash] = (now + METADATA_CACHE_TTL_SECONDS, metadata)
+    return metadata
