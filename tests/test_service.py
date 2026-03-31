@@ -335,10 +335,11 @@ class TestTritonService:
         self, mock_transfer_erc20_from_safe_compat, mock_get_olas_balance
     ):
         """Test withdraw_rewards method success"""
-        mock_get_olas_balance.return_value = 1000000000000000000  # 1 OLAS in wei
-        self.mock_master_wallet.transfer.return_value = "0xabcdef1234567890"
         mock_get_olas_balance.side_effect = [1000000000000000000, 1000000000000000000]
-        mock_transfer_erc20_from_safe_compat.return_value = "0xservice123"
+        mock_transfer_erc20_from_safe_compat.side_effect = [
+            "0xabcdef1234567890",
+            "0xservice123",
+        ]
         
         service = TritonService(self.mock_operate, "test_config_id")
         result = service.withdraw_rewards()
@@ -347,17 +348,22 @@ class TestTritonService:
             ("0xabcdef1234567890", 1.0, "Master Safe"),
             ("0xservice123", 1.0, "Service Safe"),
         ]
-        self.mock_master_wallet.transfer.assert_called_once()
-        mock_transfer_erc20_from_safe_compat.assert_called_once()
+        assert mock_transfer_erc20_from_safe_compat.call_count == 2
     
     @patch.dict(os.environ, {"WITHDRAWAL_ADDRESS": "0x1111111111111111111111111111111111111111"})
     @patch('triton.service.get_olas_balance')
     @patch('triton.service.OLAS', {Chain.GNOSIS: "0x5555555555555555555555555555555555555555"})
+    @patch('triton.service.transfer_erc20_from_safe_compat')
     @patch('triton.service.traceback')
-    def test_withdraw_rewards_transfer_exception(self, mock_traceback, mock_get_olas_balance):
+    def test_withdraw_rewards_transfer_exception(
+        self,
+        mock_traceback,
+        mock_transfer_erc20_from_safe_compat,
+        mock_get_olas_balance,
+    ):
         """Test withdraw_rewards method with transfer exception"""
-        mock_get_olas_balance.return_value = 1000000000000000000  # 1 OLAS in wei
-        self.mock_master_wallet.transfer.side_effect = Exception("Transfer failed")
+        mock_get_olas_balance.side_effect = [1000000000000000000, 0]
+        mock_transfer_erc20_from_safe_compat.side_effect = Exception("Transfer failed")
         mock_traceback.format_exc.return_value = "Traceback info"
         
         service = TritonService(self.mock_operate, "test_config_id")

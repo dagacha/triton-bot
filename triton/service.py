@@ -343,13 +343,16 @@ class TritonService:
                 "Withdrawing %.2f OLAS rewards", master_safe_olas_balance / 1e18
             )
             olas_address = OLAS[home_chain]
+            master_ledger_api = get_default_ledger_api(chain=home_chain)
 
             try:
-                tx_hash = self.master_wallet.transfer(
+                tx_hash = transfer_erc20_from_safe_compat(
+                    ledger_api=master_ledger_api,
+                    crypto=self.master_wallet.crypto,
+                    safe=master_safe,
+                    token=olas_address,
                     to=self.withdrawal_address,
                     amount=master_safe_olas_balance,
-                    chain=home_chain,
-                    asset=olas_address,
                 )
                 withdrawals.append(
                     (tx_hash, master_safe_olas_balance / 1e18, "Master Safe")
