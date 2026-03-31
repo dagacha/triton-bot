@@ -199,7 +199,7 @@ def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
                     logger.error(
                         "Failed to get staking status for %s", service_name, exc_info=error
                     )
-                    errors.append(f"[{service_name}] Error: {error}")
+                    errors.append(f"[{service_name}] Error: {str(error)}")
                     continue
 
                 status = result["status"]
@@ -222,7 +222,7 @@ Next epoch: {status['epoch_end']}"""
                 olas_price = await _run_blocking_call(get_olas_price, timeout=10)
             except Exception as exc:  # pylint: disable=broad-except
                 logger.error("Failed to fetch OLAS price", exc_info=exc)
-                errors.append(f"[price] Error: {exc}")
+                errors.append(f"[price] Error: {str(exc)}")
                 olas_price = None
             rewards_value = combined_rewards * olas_price if olas_price else None
             message = f"Total rewards = {combined_rewards:g} OLAS"
@@ -261,7 +261,7 @@ Next epoch: {status['epoch_end']}"""
             for service_name, result, error in results:
                 if error is not None:
                     logger.error("Failed to get balances for %s", service_name, exc_info=error)
-                    errors.append(f"[{service_name}] Error: {error}")
+                    errors.append(f"[{service_name}] Error: {str(error)}")
                     continue
 
                 balances = result["balances"]
@@ -320,7 +320,7 @@ Next epoch: {status['epoch_end']}"""
             for service_name, result, error in results:
                 if error is not None:
                     logger.error("Failed to claim rewards for %s", service_name, exc_info=error)
-                    errors.append(f"[{service_name}] Error: {error}")
+                    errors.append(f"[{service_name}] Error: {str(error)}")
                     continue
 
                 claimed_amount = result["claimed_amount"]
@@ -353,7 +353,7 @@ Next epoch: {status['epoch_end']}"""
             for service_name, result, error in results:
                 if error is not None:
                     logger.error("Failed to withdraw rewards for %s", service_name, exc_info=error)
-                    messages.append(r"\[" + escape_markdown_v2(service_name) + r"] " + f"Error: {error}")
+                    messages.append(r"\[" + escape_markdown_v2(service_name) + r"] " + f"Error: {str(error)}")
                     continue
 
                 withdrawals = result["withdrawals"]
