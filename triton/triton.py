@@ -9,6 +9,11 @@ import aiohttp
 import dotenv
 import pytz
 import yaml
+from triton.rpc import configure_runtime_rpcs
+
+dotenv.load_dotenv(override=True)
+configure_runtime_rpcs()
+
 from operate.cli import OperateApp
 from operate.constants import OPERATE
 from operate.operate_types import Chain
@@ -36,9 +41,6 @@ from triton.service import TritonService
 from triton.tools import escape_markdown_v2
 
 logger = logging.getLogger("telegram_bot")
-
-# Secrets
-dotenv.load_dotenv(override=True)
 
 
 def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals

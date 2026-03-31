@@ -15,6 +15,8 @@ from urllib.parse import urlencode
 import dotenv
 import pytz
 import requests
+dotenv.load_dotenv(override=True)
+
 from operate.constants import IPFS_ADDRESS
 from operate.ledger.profiles import WRAPPED_NATIVE_ASSET
 from operate.operate_types import ChainType
@@ -30,8 +32,6 @@ from triton.constants import (
 from triton.tools import wei_to_olas
 
 logger = logging.getLogger("chain")
-
-dotenv.load_dotenv(override=True)
 
 GNOSIS_RPC = os.getenv("GNOSIS_RPC")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
