@@ -79,6 +79,20 @@ Point triton to all your trader_quickstart folder locations (they have to contai
     poetry run python run.py
     ```
 
+## Run the tests
+
+Run the full test suite:
+
+```bash
+poetry run pytest -q
+```
+
+Run a specific test file:
+
+```bash
+poetry run pytest -q tests/test_triton.py
+```
+
 ## Run Triton as a systemd service
 
 1. Install:
