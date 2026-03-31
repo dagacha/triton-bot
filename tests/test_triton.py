@@ -255,6 +255,30 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
 [Master Safe](https://gnosisscan.io/address/0xmastersafe012) = 3 xDAI  10 OLAS"""
         )
 
+    def test_staking_status_handler_partial_failure(
+        self, mock_triton_app, mock_update, mock_service
+    ):
+        """Test staking_status returns partial results when one service fails."""
+        staking_status_handler = mock_triton_app("staking_status")
+        mock_service.get_staking_status.side_effect = [
+            Exception("rpc timeout"),
+            {
+                "accrued_rewards": "10.5 OLAS",
+                "mech_requests_this_epoch": "5",
+                "required_mech_requests": "10",
+                "epoch_end": "2025-07-21 12:00:00",
+                "metadata": {"name": "Staking Program 1"},
+            },
+        ]
+
+        with patch("triton.triton.get_olas_price", return_value=2.5):
+            asyncio.run(staking_status_handler(mock_update, None))
+
+        sent_text = mock_update.message.reply_text.call_args.kwargs["text"]
+        assert "[operator2-service] 10.5 OLAS [5/10]" in sent_text
+        assert "Total rewards = 120.5 OLAS" in sent_text
+        assert "[operator1-service] Error: rpc timeout" in sent_text
+
     def test_claim_handler(self, mock_triton_app, mock_update):
         """Test claim handler using the mock_triton_app fixture"""
         # Get the claim handler
@@ -292,9 +316,19 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
         # Get the slots handler
         slots_handler = mock_triton_app('slots')
 
-        with (
-            patch('triton.chain.load_contract', return_value=Mock()),
-            patch('triton.chain.len', return_value=0),
+        with patch(
+            "triton.triton.get_slots",
+            return_value={
+                "Hobbyist (100 OLAS)": 100,
+                "Hobbyist 2 (500 OLAS)": 50,
+                "Expert (1k OLAS)": 20,
+                "Expert 2 (1k OLAS)": 40,
+                "Expert 3 (2k OLAS)": 20,
+                "Expert 4 (10k OLAS)": 26,
+                "Expert 5 (10k OLAS)": 26,
+                "Expert 6 (1k OLAS)": 40,
+                "Expert 7 (10k OLAS)": 26,
+            },
         ):
             # Execute the handler
             asyncio.run(slots_handler(mock_update, None))

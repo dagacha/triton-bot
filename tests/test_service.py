@@ -5,7 +5,13 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from operate.operate_types import Chain
-from triton.service import TritonService
+from triton.service import (
+    SAFE_TRANSFER_FALLBACK_GAS,
+    TritonService,
+    _ensure_safe_tx_gas,
+    _normalize_gas_pricing,
+    _normalize_tx_fee_fields,
+)
 
 
 class TestTritonService:
@@ -326,25 +332,40 @@ class TestTritonService:
     @patch.dict(os.environ, {"WITHDRAWAL_ADDRESS": "0x1111111111111111111111111111111111111111"})
     @patch('triton.service.get_olas_balance')
     @patch('triton.service.OLAS', {Chain.GNOSIS: "0x5555555555555555555555555555555555555555"})
-    def test_withdraw_rewards_success(self, mock_get_olas_balance):
+    @patch('triton.service.transfer_erc20_from_safe_compat')
+    def test_withdraw_rewards_success(
+        self, mock_transfer_erc20_from_safe_compat, mock_get_olas_balance
+    ):
         """Test withdraw_rewards method success"""
-        mock_get_olas_balance.return_value = 1000000000000000000  # 1 OLAS in wei
-        self.mock_master_wallet.transfer.return_value = "0xabcdef1234567890"
+        mock_get_olas_balance.side_effect = [1000000000000000000, 1000000000000000000]
+        mock_transfer_erc20_from_safe_compat.side_effect = [
+            "0xabcdef1234567890",
+            "0xservice123",
+        ]
         
         service = TritonService(self.mock_operate, "test_config_id")
         result = service.withdraw_rewards()
         
-        assert result == [("0xabcdef1234567890", 1.0, "Master Safe")]
-        self.mock_master_wallet.transfer.assert_called_once()
+        assert result == [
+            ("0xabcdef1234567890", 1.0, "Master Safe"),
+            ("0xservice123", 1.0, "Service Safe"),
+        ]
+        assert mock_transfer_erc20_from_safe_compat.call_count == 2
     
     @patch.dict(os.environ, {"WITHDRAWAL_ADDRESS": "0x1111111111111111111111111111111111111111"})
     @patch('triton.service.get_olas_balance')
     @patch('triton.service.OLAS', {Chain.GNOSIS: "0x5555555555555555555555555555555555555555"})
+    @patch('triton.service.transfer_erc20_from_safe_compat')
     @patch('triton.service.traceback')
-    def test_withdraw_rewards_transfer_exception(self, mock_traceback, mock_get_olas_balance):
+    def test_withdraw_rewards_transfer_exception(
+        self,
+        mock_traceback,
+        mock_transfer_erc20_from_safe_compat,
+        mock_get_olas_balance,
+    ):
         """Test withdraw_rewards method with transfer exception"""
-        mock_get_olas_balance.return_value = 1000000000000000000  # 1 OLAS in wei
-        self.mock_master_wallet.transfer.side_effect = Exception("Transfer failed")
+        mock_get_olas_balance.side_effect = [1000000000000000000, 0]
+        mock_transfer_erc20_from_safe_compat.side_effect = Exception("Transfer failed")
         mock_traceback.format_exc.return_value = "Traceback info"
         
         service = TritonService(self.mock_operate, "test_config_id")
@@ -380,7 +401,7 @@ class TestTritonServiceIntegration:
         mock_service.home_chain = "gnosis"
         mock_service.keys = [MagicMock()]
         mock_service.keys[0].private_key = "test_private_key"
-        
+
         # Setup mock chain configs
         mock_chain_config = MagicMock()
         mock_chain_data = MagicMock()
@@ -388,12 +409,58 @@ class TestTritonServiceIntegration:
         mock_chain_data.token = 123
         mock_chain_data.instances = ["0xabcdef1234567890abcdef1234567890abcdef12"]
         mock_chain_config.chain_data = mock_chain_data
-        
+
         mock_service.chain_configs = {"gnosis": mock_chain_config}
-        
+
         service = TritonService(mock_operate, "test_config_id")
-        
+
         assert service is not None
         assert service.service_id == 123
         assert service.agent_address == "0xabcdef1234567890abcdef1234567890abcdef12"
         assert service.service_safe == "0x1234567890abcdef1234567890abcdef12345678"
+
+
+class TestGasPricingNormalization:
+    """Tests for gas pricing normalization helpers."""
+
+    def test_normalize_gas_pricing_from_nested_gas_price(self):
+        """Nested EIP-1559 gasPrice should be flattened."""
+        normalized = _normalize_gas_pricing(
+            {"gasPrice": {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5}}
+        )
+
+        assert normalized == {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5}
+
+    def test_normalize_tx_fee_fields_replaces_nested_gas_price(self):
+        """Malformed gasPrice object should be replaced on tx dicts."""
+        tx_dict = {
+            "gasPrice": {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5},
+            "gas": 21000,
+        }
+
+        normalized = _normalize_tx_fee_fields(tx_dict)
+
+        assert normalized == {
+            "gas": 21000,
+            "maxFeePerGas": 123,
+            "maxPriorityFeePerGas": 5,
+        }
+
+    def test_ensure_safe_tx_gas_uses_estimate(self):
+        """Safe tx gas should be replaced when the builder returns 1."""
+        ledger_api = MagicMock()
+        ledger_api.api.eth.estimate_gas.return_value = 123456
+
+        tx_dict = _ensure_safe_tx_gas(ledger_api, {"gas": 1, "to": "0xabc"})
+
+        assert tx_dict["gas"] == 173456
+        ledger_api.api.eth.estimate_gas.assert_called_once_with({"to": "0xabc"})
+
+    def test_ensure_safe_tx_gas_uses_fallback_on_estimate_error(self):
+        """Safe tx gas should fall back when manual estimate fails."""
+        ledger_api = MagicMock()
+        ledger_api.api.eth.estimate_gas.side_effect = Exception("estimate failed")
+
+        tx_dict = _ensure_safe_tx_gas(ledger_api, {"gas": 1, "to": "0xabc"})
+
+        assert tx_dict["gas"] == SAFE_TRANSFER_FALLBACK_GAS

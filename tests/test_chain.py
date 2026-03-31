@@ -12,6 +12,7 @@ from triton.chain import (
     get_wrapped_native_balance,
     load_contract,
     get_olas_balance,
+    get_staking_metadata,
     get_mech_request_count,
     get_staking_status,
     get_olas_price,
@@ -256,6 +257,7 @@ class TestGetStakingStatus:
 class TestGetOlasPrice:
     """Tests for get_olas_price function"""
     
+    @patch("triton.chain._price_cache", {"value": None, "expires_at": 0.0})
     @patch('triton.chain.requests')
     def test_get_olas_price_success(self, mock_requests):
         """Test successful OLAS price retrieval"""
@@ -269,6 +271,7 @@ class TestGetOlasPrice:
         assert result == 1.23
         mock_requests.get.assert_called_once()
     
+    @patch("triton.chain._price_cache", {"value": None, "expires_at": 0.0})
     @patch('triton.chain.requests')
     @patch('triton.chain.logger')
     def test_get_olas_price_error(self, mock_logger, mock_requests):
@@ -281,6 +284,42 @@ class TestGetOlasPrice:
         
         assert result is None
         mock_logger.error.assert_called_once_with(mock_response)
+
+    @patch("triton.chain._price_cache", {"value": None, "expires_at": 0.0})
+    @patch("triton.chain.requests")
+    def test_get_olas_price_uses_cache(self, mock_requests):
+        """Test OLAS price retrieval is cached."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"autonolas": {"usd": 1.23}}
+        mock_requests.get.return_value = mock_response
+
+        first = get_olas_price()
+        second = get_olas_price()
+
+        assert first == 1.23
+        assert second == 1.23
+        mock_requests.get.assert_called_once()
+
+
+class TestGetStakingMetadata:
+    """Tests for staking metadata cache."""
+
+    @patch("triton.chain._metadata_cache", {})
+    @patch("triton.chain.requests.get")
+    def test_get_staking_metadata_uses_cache(self, mock_get):
+        """Metadata fetch should be cached per metadata hash."""
+        mock_response = MagicMock()
+        mock_response.status_code = HTTPStatus.OK
+        mock_response.json.return_value = {"name": "Cached Program"}
+        mock_get.return_value = mock_response
+
+        first = get_staking_metadata("abc123")
+        second = get_staking_metadata("abc123")
+
+        assert first == {"name": "Cached Program"}
+        assert second == {"name": "Cached Program"}
+        mock_get.assert_called_once()
 
 
 class TestGetSlots:
