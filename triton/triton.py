@@ -65,7 +65,7 @@ async def _run_service_tasks(
     services: t.Dict[str, "TritonService"],
     worker: t.Callable[[str, "TritonService"], t.Any],
     *,
-    timeout: float = SERVICE_TASK_TIMEOUT_SECONDS,
+    timeout: float | None = SERVICE_TASK_TIMEOUT_SECONDS,
 ) -> list[tuple[str, t.Any | None, Exception | None]]:
     """Run service tasks concurrently and keep partial failures isolated."""
     semaphore = asyncio.Semaphore(max(1, SERVICE_CONCURRENCY))
@@ -316,7 +316,9 @@ Next epoch: {status['epoch_end']}"""
 
             messages = []
             errors = []
-            results = await _run_service_tasks(services, _claim_rewards)
+            results = await _run_service_tasks(
+                services, _claim_rewards, timeout=None
+            )
             for service_name, result, error in results:
                 if error is not None:
                     logger.error("Failed to claim rewards for %s", service_name, exc_info=error)
@@ -349,7 +351,9 @@ Next epoch: {status['epoch_end']}"""
                 return
 
             messages = []
-            results = await _run_service_tasks(services, _withdraw_rewards)
+            results = await _run_service_tasks(
+                services, _withdraw_rewards, timeout=None
+            )
             for service_name, result, error in results:
                 if error is not None:
                     logger.error("Failed to withdraw rewards for %s", service_name, exc_info=error)
@@ -556,7 +560,9 @@ Next epoch: {status['epoch_end']}"""
             messages = []
 
             # Claim
-            claim_results = await _run_service_tasks(services, _claim_rewards)
+            claim_results = await _run_service_tasks(
+                services, _claim_rewards, timeout=None
+            )
             for service_name, _, error in claim_results:
                 if error is not None:
                     logger.error("Autoclaim claim failed for %s", service_name, exc_info=error)
@@ -565,7 +571,9 @@ Next epoch: {status['epoch_end']}"""
                     )
 
             # Withdraw
-            withdraw_results = await _run_service_tasks(services, _withdraw_rewards)
+            withdraw_results = await _run_service_tasks(
+                services, _withdraw_rewards, timeout=None
+            )
             for service_name, result, error in withdraw_results:
                 if error is not None:
                     logger.error("Autoclaim withdraw failed for %s", service_name, exc_info=error)
