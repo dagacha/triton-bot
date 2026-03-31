@@ -5,7 +5,11 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from operate.operate_types import Chain
-from triton.service import TritonService
+from triton.service import (
+    TritonService,
+    _normalize_gas_pricing,
+    _normalize_tx_fee_fields,
+)
 
 
 class TestTritonService:
@@ -326,16 +330,25 @@ class TestTritonService:
     @patch.dict(os.environ, {"WITHDRAWAL_ADDRESS": "0x1111111111111111111111111111111111111111"})
     @patch('triton.service.get_olas_balance')
     @patch('triton.service.OLAS', {Chain.GNOSIS: "0x5555555555555555555555555555555555555555"})
-    def test_withdraw_rewards_success(self, mock_get_olas_balance):
+    @patch('triton.service.transfer_erc20_from_safe_compat')
+    def test_withdraw_rewards_success(
+        self, mock_transfer_erc20_from_safe_compat, mock_get_olas_balance
+    ):
         """Test withdraw_rewards method success"""
         mock_get_olas_balance.return_value = 1000000000000000000  # 1 OLAS in wei
         self.mock_master_wallet.transfer.return_value = "0xabcdef1234567890"
+        mock_get_olas_balance.side_effect = [1000000000000000000, 1000000000000000000]
+        mock_transfer_erc20_from_safe_compat.return_value = "0xservice123"
         
         service = TritonService(self.mock_operate, "test_config_id")
         result = service.withdraw_rewards()
         
-        assert result == [("0xabcdef1234567890", 1.0, "Master Safe")]
+        assert result == [
+            ("0xabcdef1234567890", 1.0, "Master Safe"),
+            ("0xservice123", 1.0, "Service Safe"),
+        ]
         self.mock_master_wallet.transfer.assert_called_once()
+        mock_transfer_erc20_from_safe_compat.assert_called_once()
     
     @patch.dict(os.environ, {"WITHDRAWAL_ADDRESS": "0x1111111111111111111111111111111111111111"})
     @patch('triton.service.get_olas_balance')
@@ -380,7 +393,7 @@ class TestTritonServiceIntegration:
         mock_service.home_chain = "gnosis"
         mock_service.keys = [MagicMock()]
         mock_service.keys[0].private_key = "test_private_key"
-        
+
         # Setup mock chain configs
         mock_chain_config = MagicMock()
         mock_chain_data = MagicMock()
@@ -388,12 +401,39 @@ class TestTritonServiceIntegration:
         mock_chain_data.token = 123
         mock_chain_data.instances = ["0xabcdef1234567890abcdef1234567890abcdef12"]
         mock_chain_config.chain_data = mock_chain_data
-        
+
         mock_service.chain_configs = {"gnosis": mock_chain_config}
-        
+
         service = TritonService(mock_operate, "test_config_id")
-        
+
         assert service is not None
         assert service.service_id == 123
         assert service.agent_address == "0xabcdef1234567890abcdef1234567890abcdef12"
         assert service.service_safe == "0x1234567890abcdef1234567890abcdef12345678"
+
+
+class TestGasPricingNormalization:
+    """Tests for gas pricing normalization helpers."""
+
+    def test_normalize_gas_pricing_from_nested_gas_price(self):
+        """Nested EIP-1559 gasPrice should be flattened."""
+        normalized = _normalize_gas_pricing(
+            {"gasPrice": {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5}}
+        )
+
+        assert normalized == {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5}
+
+    def test_normalize_tx_fee_fields_replaces_nested_gas_price(self):
+        """Malformed gasPrice object should be replaced on tx dicts."""
+        tx_dict = {
+            "gasPrice": {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5},
+            "gas": 21000,
+        }
+
+        normalized = _normalize_tx_fee_fields(tx_dict)
+
+        assert normalized == {
+            "gas": 21000,
+            "maxFeePerGas": 123,
+            "maxPriorityFeePerGas": 5,
+        }
