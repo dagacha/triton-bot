@@ -6,7 +6,9 @@ from unittest.mock import patch, MagicMock
 
 from operate.operate_types import Chain
 from triton.service import (
+    SAFE_TRANSFER_FALLBACK_GAS,
     TritonService,
+    _ensure_safe_tx_gas,
     _normalize_gas_pricing,
     _normalize_tx_fee_fields,
 )
@@ -443,3 +445,22 @@ class TestGasPricingNormalization:
             "maxFeePerGas": 123,
             "maxPriorityFeePerGas": 5,
         }
+
+    def test_ensure_safe_tx_gas_uses_estimate(self):
+        """Safe tx gas should be replaced when the builder returns 1."""
+        ledger_api = MagicMock()
+        ledger_api.api.eth.estimate_gas.return_value = 123456
+
+        tx_dict = _ensure_safe_tx_gas(ledger_api, {"gas": 1, "to": "0xabc"})
+
+        assert tx_dict["gas"] == 173456
+        ledger_api.api.eth.estimate_gas.assert_called_once_with({"to": "0xabc"})
+
+    def test_ensure_safe_tx_gas_uses_fallback_on_estimate_error(self):
+        """Safe tx gas should fall back when manual estimate fails."""
+        ledger_api = MagicMock()
+        ledger_api.api.eth.estimate_gas.side_effect = Exception("estimate failed")
+
+        tx_dict = _ensure_safe_tx_gas(ledger_api, {"gas": 1, "to": "0xabc"})
+
+        assert tx_dict["gas"] == SAFE_TRANSFER_FALLBACK_GAS

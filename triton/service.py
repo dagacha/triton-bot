@@ -33,6 +33,8 @@ from triton.chain import (
     get_wrapped_native_balance,
 )
 
+SAFE_TRANSFER_FALLBACK_GAS = int(os.getenv("SAFE_TRANSFER_FALLBACK_GAS", "500000"))
+
 
 def _normalize_gas_pricing(gas_pricing: object) -> dict:
     """Normalize gas pricing from the ledger API into tx-ready fields."""
@@ -65,6 +67,21 @@ def _normalize_tx_fee_fields(tx_dict: dict) -> dict:
     if isinstance(nested_gas_price, Mapping):
         tx_dict.pop("gasPrice", None)
         tx_dict.update(_normalize_gas_pricing({"gasPrice": nested_gas_price}))
+    return tx_dict
+
+
+def _ensure_safe_tx_gas(ledger_api, tx_dict: dict) -> dict:
+    """Replace unusable Safe tx gas with a real estimate or a sane fallback."""
+    current_gas = tx_dict.get("gas")
+    if isinstance(current_gas, int) and current_gas > 21_000:
+        return tx_dict
+
+    estimate_tx = dict(tx_dict)
+    estimate_tx.pop("gas", None)
+    try:
+        tx_dict["gas"] = int(ledger_api.api.eth.estimate_gas(estimate_tx)) + 50_000
+    except Exception:  # pylint: disable=broad-except
+        tx_dict["gas"] = SAFE_TRANSFER_FALLBACK_GAS
     return tx_dict
 
 
@@ -121,7 +138,10 @@ def transfer_erc20_from_safe_compat(
             max_fee_per_gas=gas_pricing.get("maxFeePerGas"),
             max_priority_fee_per_gas=gas_pricing.get("maxPriorityFeePerGas"),
         )
-        return _normalize_tx_fee_fields(tx_dict)
+        return _ensure_safe_tx_gas(
+            ledger_api,
+            _normalize_tx_fee_fields(tx_dict),
+        )
 
     tx_settler = gnosis_utils.TxSettler(
         ledger_api=ledger_api,
