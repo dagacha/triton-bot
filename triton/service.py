@@ -94,13 +94,7 @@ def transfer_erc20_from_safe_compat(
         ledger_api=ledger_api,
         contract_address=token,
     )
-    txd = instance.encodeABI(
-        fn_name="transfer",
-        args=[
-            to,
-            amount,
-        ],
-    )
+    txd = instance.functions.transfer(to, amount)._encode_transaction_data()
 
     owner = ledger_api.api.to_checksum_address(crypto.address)
 
