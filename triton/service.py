@@ -5,11 +5,16 @@ This module defines the TritonService class, which handles the operations of the
 import binascii
 import logging
 import os
+import time
 import traceback
 from collections.abc import Mapping
+from datetime import datetime
 from typing import List, Optional, Tuple, cast
 
 import dotenv
+from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
+from autonomy.chain.tx import should_rebuild, should_reprice, should_retry
+from requests.exceptions import ConnectionError as RequestsConnectionError
 from triton.rpc import configure_runtime_rpcs
 
 dotenv.load_dotenv(override=True)
@@ -85,6 +90,60 @@ def _ensure_safe_tx_gas(ledger_api, tx_dict: dict) -> dict:
     return tx_dict
 
 
+def _transact_with_receipt(ledger_api, crypto, tx_builder) -> dict:
+    """Build, sign, submit, and poll for a transaction receipt."""
+    retries = 0
+    tx_dict = None
+    tx_digest = None
+    already_known = False
+    deadline = datetime.now().timestamp() + gnosis_utils.ON_CHAIN_INTERACT_TIMEOUT
+
+    while (
+        retries < gnosis_utils.ON_CHAIN_INTERACT_RETRIES
+        and deadline >= datetime.now().timestamp()
+    ):
+        retries += 1
+        try:
+            if not already_known:
+                tx_dict = tx_dict or tx_builder()
+                if tx_dict is None:
+                    raise ChainInteractionError("Got empty transaction")
+
+                tx_signed = crypto.sign_transaction(transaction=tx_dict)
+                tx_digest = ledger_api.send_signed_transaction(
+                    tx_signed=tx_signed,
+                    raise_on_try=True,
+                )
+
+            tx_receipt = ledger_api.api.eth.get_transaction_receipt(cast(str, tx_digest))
+            if tx_receipt is not None:
+                return tx_receipt
+        except RequestsConnectionError as e:
+            raise RPCError("Cannot connect to the given RPC") from e
+        except Exception as e:  # pylint: disable=broad-except
+            error = str(e)
+            if "Transaction with hash" in error and "not found" in error:
+                already_known = True
+                time.sleep(gnosis_utils.ON_CHAIN_INTERACT_SLEEP)
+                continue
+            if should_reprice(error):
+                tx_dict = _ensure_safe_tx_gas(
+                    ledger_api,
+                    _normalize_tx_fee_fields(tx_builder()),
+                )
+                continue
+            if not should_retry(error):
+                raise ChainInteractionError(error) from e
+            if should_rebuild(error):
+                tx_dict = None
+
+            tx_digest = None
+            already_known = False
+            time.sleep(gnosis_utils.ON_CHAIN_INTERACT_SLEEP)
+
+    raise ChainTimeoutError("Timed out when waiting for transaction to go through")
+
+
 def transfer_erc20_from_safe_compat(
     ledger_api, crypto, safe: str, token: str, to: str, amount: float | int
 ) -> Optional[str]:
@@ -137,22 +196,10 @@ def transfer_erc20_from_safe_compat(
             _normalize_tx_fee_fields(tx_dict),
         )
 
-    tx_settler = gnosis_utils.TxSettler(
+    tx_receipt = _transact_with_receipt(
         ledger_api=ledger_api,
         crypto=crypto,
-        chain_type=Chain.from_id(
-            ledger_api._chain_id  # pylint: disable=protected-access
-        ),
-        timeout=gnosis_utils.ON_CHAIN_INTERACT_TIMEOUT,
-        retries=gnosis_utils.ON_CHAIN_INTERACT_RETRIES,
-        sleep=gnosis_utils.ON_CHAIN_INTERACT_SLEEP,
-    )
-    setattr(tx_settler, "build", _build_tx)  # noqa: B010
-    tx_receipt = tx_settler.transact(
-        method=lambda: {},
-        contract="",
-        kwargs={},
-        dry_run=False,
+        tx_builder=_build_tx,
     )
     tx_hash = tx_receipt.get("transactionHash", "").hex()
     return tx_hash

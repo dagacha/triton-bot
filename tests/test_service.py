@@ -11,6 +11,7 @@ from triton.service import (
     _ensure_safe_tx_gas,
     _normalize_gas_pricing,
     _normalize_tx_fee_fields,
+    _transact_with_receipt,
 )
 
 
@@ -464,3 +465,36 @@ class TestGasPricingNormalization:
         tx_dict = _ensure_safe_tx_gas(ledger_api, {"gas": 1, "to": "0xabc"})
 
         assert tx_dict["gas"] == SAFE_TRANSFER_FALLBACK_GAS
+
+    @patch("triton.service.time.sleep")
+    def test_transact_with_receipt_retries_missing_receipt(self, mock_sleep):
+        """Submitted tx should keep polling when the receipt is not yet available."""
+        ledger_api = MagicMock()
+        crypto = MagicMock()
+        tx_builder = MagicMock(return_value={"to": "0xabc", "gas": 123456})
+        receipt_hash = MagicMock()
+        receipt_hash.hex.return_value = "0xdeadbeef"
+
+        ledger_api.send_signed_transaction.return_value = "0xdeadbeef"
+        ledger_api.api.eth.get_transaction_receipt.side_effect = [
+            Exception("Transaction with hash: '0xdeadbeef' not found."),
+            {"transactionHash": receipt_hash},
+        ]
+
+        receipt = _transact_with_receipt(
+            ledger_api=ledger_api,
+            crypto=crypto,
+            tx_builder=tx_builder,
+        )
+
+        assert receipt == {"transactionHash": receipt_hash}
+        tx_builder.assert_called_once()
+        crypto.sign_transaction.assert_called_once_with(
+            transaction={"to": "0xabc", "gas": 123456}
+        )
+        ledger_api.send_signed_transaction.assert_called_once_with(
+            tx_signed=crypto.sign_transaction.return_value,
+            raise_on_try=True,
+        )
+        assert ledger_api.api.eth.get_transaction_receipt.call_count == 2
+        mock_sleep.assert_called_once()
