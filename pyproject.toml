@@ -6,10 +6,10 @@ authors = ["David Vilela <dvilelaf@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "<3.12,>=3.9"
+python = "<3.12,>=3.10"
 python-telegram-bot = {extras = ["job-queue"], version = "^21.7"}
 click = "^8.1.7"
-olas-operate-middleware = "^0.13.1"
+olas-operate-middleware = "^0.15.5"
 pytz = "^2025.2"
 aiohttp = "3.9.5"
 
@@ -20,7 +20,7 @@ isort = "^6.0.1"
 darglint = "^1.8.1"
 pylint = "^3.3.7"
 mypy = "^1.17.0"
-pytest = "^7.2.1"
+pytest = "^8.4.2"
 types-pytz = "^2025.2.0.20250516"
 types-requests = "^2.32.4.20250611"
 types-pyyaml = "^6.0.12.20250516"
