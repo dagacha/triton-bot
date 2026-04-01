@@ -447,6 +447,31 @@ class TestGasPricingNormalization:
             "maxPriorityFeePerGas": 5,
         }
 
+    def test_normalize_gas_pricing_prefers_eip1559_fields(self):
+        """Mixed fee inputs should resolve to EIP-1559 fields only."""
+        normalized = _normalize_gas_pricing(
+            {"gasPrice": 999, "maxFeePerGas": 123, "maxPriorityFeePerGas": 5}
+        )
+
+        assert normalized == {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5}
+
+    def test_normalize_tx_fee_fields_drops_legacy_gas_price_with_eip1559(self):
+        """Signed txs should not keep gasPrice alongside EIP-1559 fields."""
+        tx_dict = {
+            "gasPrice": 999,
+            "maxFeePerGas": 123,
+            "maxPriorityFeePerGas": 5,
+            "gas": 21000,
+        }
+
+        normalized = _normalize_tx_fee_fields(tx_dict)
+
+        assert normalized == {
+            "gas": 21000,
+            "maxFeePerGas": 123,
+            "maxPriorityFeePerGas": 5,
+        }
+
     def test_ensure_safe_tx_gas_uses_estimate(self):
         """Safe tx gas should be replaced when the builder returns 1."""
         ledger_api = MagicMock()

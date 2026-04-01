@@ -65,12 +65,21 @@ def _normalize_gas_pricing(gas_pricing: object) -> dict:
             }
         return {}
 
-    normalized = {}
-    for key in ("gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"):
-        value = gas_pricing.get(key)
-        if value is not None:
-            normalized[key] = int(value)
-    return normalized
+    max_fee_per_gas = gas_pricing.get("maxFeePerGas")
+    max_priority_fee_per_gas = gas_pricing.get("maxPriorityFeePerGas")
+    if max_fee_per_gas is not None or max_priority_fee_per_gas is not None:
+        normalized = {}
+        if max_fee_per_gas is not None:
+            normalized["maxFeePerGas"] = int(max_fee_per_gas)
+        if max_priority_fee_per_gas is not None:
+            normalized["maxPriorityFeePerGas"] = int(max_priority_fee_per_gas)
+        return normalized
+
+    gas_price = gas_pricing.get("gasPrice")
+    if gas_price is not None:
+        return {"gasPrice": int(gas_price)}
+
+    return {}
 
 
 def _should_retry(error: str) -> bool:
@@ -99,6 +108,8 @@ def _normalize_tx_fee_fields(tx_dict: dict) -> dict:
     if isinstance(nested_gas_price, Mapping):
         tx_dict.pop("gasPrice", None)
         tx_dict.update(_normalize_gas_pricing({"gasPrice": nested_gas_price}))
+    if "maxFeePerGas" in tx_dict or "maxPriorityFeePerGas" in tx_dict:
+        tx_dict.pop("gasPrice", None)
     return tx_dict
 
 
