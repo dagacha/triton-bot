@@ -12,6 +12,7 @@ click = "^8.1.7"
 olas-operate-middleware = "^0.15.5"
 pytz = "^2025.2"
 aiohttp = "3.9.5"
+jsonschema = ">=4.19.1,<4.24.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^25.1.0"
