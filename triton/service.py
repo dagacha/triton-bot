@@ -13,7 +13,6 @@ from typing import List, Optional, Tuple, cast
 
 import dotenv
 from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
-from autonomy.chain.tx import should_rebuild, should_reprice, should_retry
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from triton.rpc import configure_runtime_rpcs
 
@@ -40,6 +39,14 @@ from triton.chain import (
 
 SAFE_TRANSFER_FALLBACK_GAS = int(os.getenv("SAFE_TRANSFER_FALLBACK_GAS", "500000"))
 
+_RETRYABLE_CHAIN_ERRORS = (
+    "FeeTooLow",
+    "ReplacementNotAllowed",
+    "wrong transaction nonce",
+    "OldNonce",
+    "nonce too low",
+)
+
 
 def _normalize_gas_pricing(gas_pricing: object) -> dict:
     """Normalize gas pricing from the ledger API into tx-ready fields."""
@@ -64,6 +71,26 @@ def _normalize_gas_pricing(gas_pricing: object) -> dict:
         if value is not None:
             normalized[key] = int(value)
     return normalized
+
+
+def _should_retry(error: str) -> bool:
+    """Return whether the chain interaction should be retried."""
+    if "Transaction with hash" in error and "not found" in error:
+        return True
+    return any(retryable in error for retryable in _RETRYABLE_CHAIN_ERRORS)
+
+
+def _should_reprice(error: str) -> bool:
+    """Return whether the tx should be repriced."""
+    return "FeeTooLow" in error or "ReplacementNotAllowed" in error
+
+
+def _should_rebuild(error: str) -> bool:
+    """Return whether the tx should be rebuilt from scratch."""
+    return any(
+        nonce_error in error
+        for nonce_error in ("wrong transaction nonce", "OldNonce", "nonce too low")
+    )
 
 
 def _normalize_tx_fee_fields(tx_dict: dict) -> dict:
@@ -126,15 +153,15 @@ def _transact_with_receipt(ledger_api, crypto, tx_builder) -> dict:
                 already_known = True
                 time.sleep(gnosis_utils.ON_CHAIN_INTERACT_SLEEP)
                 continue
-            if should_reprice(error):
+            if _should_reprice(error):
                 tx_dict = _ensure_safe_tx_gas(
                     ledger_api,
                     _normalize_tx_fee_fields(tx_builder()),
                 )
                 continue
-            if not should_retry(error):
+            if not _should_retry(error):
                 raise ChainInteractionError(error) from e
-            if should_rebuild(error):
+            if _should_rebuild(error):
                 tx_dict = None
 
             tx_digest = None
