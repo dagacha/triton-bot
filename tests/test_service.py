@@ -11,6 +11,7 @@ from triton.service import (
     _ensure_safe_tx_gas,
     _normalize_gas_pricing,
     _normalize_tx_fee_fields,
+    _transact_with_receipt,
 )
 
 
@@ -446,6 +447,31 @@ class TestGasPricingNormalization:
             "maxPriorityFeePerGas": 5,
         }
 
+    def test_normalize_gas_pricing_prefers_eip1559_fields(self):
+        """Mixed fee inputs should resolve to EIP-1559 fields only."""
+        normalized = _normalize_gas_pricing(
+            {"gasPrice": 999, "maxFeePerGas": 123, "maxPriorityFeePerGas": 5}
+        )
+
+        assert normalized == {"maxFeePerGas": 123, "maxPriorityFeePerGas": 5}
+
+    def test_normalize_tx_fee_fields_drops_legacy_gas_price_with_eip1559(self):
+        """Signed txs should not keep gasPrice alongside EIP-1559 fields."""
+        tx_dict = {
+            "gasPrice": 999,
+            "maxFeePerGas": 123,
+            "maxPriorityFeePerGas": 5,
+            "gas": 21000,
+        }
+
+        normalized = _normalize_tx_fee_fields(tx_dict)
+
+        assert normalized == {
+            "gas": 21000,
+            "maxFeePerGas": 123,
+            "maxPriorityFeePerGas": 5,
+        }
+
     def test_ensure_safe_tx_gas_uses_estimate(self):
         """Safe tx gas should be replaced when the builder returns 1."""
         ledger_api = MagicMock()
@@ -464,3 +490,36 @@ class TestGasPricingNormalization:
         tx_dict = _ensure_safe_tx_gas(ledger_api, {"gas": 1, "to": "0xabc"})
 
         assert tx_dict["gas"] == SAFE_TRANSFER_FALLBACK_GAS
+
+    @patch("triton.service.time.sleep")
+    def test_transact_with_receipt_retries_missing_receipt(self, mock_sleep):
+        """Submitted tx should keep polling when the receipt is not yet available."""
+        ledger_api = MagicMock()
+        crypto = MagicMock()
+        tx_builder = MagicMock(return_value={"to": "0xabc", "gas": 123456})
+        receipt_hash = MagicMock()
+        receipt_hash.hex.return_value = "0xdeadbeef"
+
+        ledger_api.send_signed_transaction.return_value = "0xdeadbeef"
+        ledger_api.api.eth.get_transaction_receipt.side_effect = [
+            Exception("Transaction with hash: '0xdeadbeef' not found."),
+            {"transactionHash": receipt_hash},
+        ]
+
+        receipt = _transact_with_receipt(
+            ledger_api=ledger_api,
+            crypto=crypto,
+            tx_builder=tx_builder,
+        )
+
+        assert receipt == {"transactionHash": receipt_hash}
+        tx_builder.assert_called_once()
+        crypto.sign_transaction.assert_called_once_with(
+            transaction={"to": "0xabc", "gas": 123456}
+        )
+        ledger_api.send_signed_transaction.assert_called_once_with(
+            tx_signed=crypto.sign_transaction.return_value,
+            raise_on_try=True,
+        )
+        assert ledger_api.api.eth.get_transaction_receipt.call_count == 2
+        mock_sleep.assert_called_once()
