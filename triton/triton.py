@@ -181,6 +181,26 @@ def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
                 service_config_id=service.service_config_id,
             )
 
+    async def report_error(
+        *,
+        context: ContextTypes.DEFAULT_TYPE,
+        update: Update | None,
+        where: str,
+        exc: Exception,
+    ) -> None:
+        """Report errors to logs and Telegram."""
+        logger.error("Error in %s", where, exc_info=exc)
+        message = f"Error in {where}: {exc}"
+        try:
+            if update and update.message:
+                await update.message.reply_text(text=message)
+            await context.bot.send_message(
+                chat_id=CHAT_ID,
+                text=message,
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.error("Failed to send error message to chat", exc_info=True)
+
     # Commands
     async def staking_status(  # pylint: disable=unused-argument,too-many-locals
         update: Update,
@@ -653,22 +673,3 @@ Next epoch: {status['epoch_end']}"""
     # Start
     logger.info("Starting bot")
     app.run_polling()
-    async def report_error(
-        *,
-        context: ContextTypes.DEFAULT_TYPE,
-        update: Update | None,
-        where: str,
-        exc: Exception,
-    ) -> None:
-        """Report errors to logs and Telegram."""
-        logger.error("Error in %s", where, exc_info=exc)
-        message = f"Error in {where}: {exc}"
-        try:
-            if update and update.message:
-                await update.message.reply_text(text=message)
-            await context.bot.send_message(
-                chat_id=CHAT_ID,
-                text=message,
-            )
-        except Exception:  # pylint: disable=broad-except
-            logger.error("Failed to send error message to chat", exc_info=True)
