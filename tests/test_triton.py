@@ -529,3 +529,71 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
                 "parse_mode": ParseMode.MARKDOWN,
                 "disable_web_page_preview": True,
             }
+
+    def test_report_error_available_before_run_polling_returns(
+        self, mock_config, mock_service
+    ):
+        """Ensure handlers can call report_error while polling is running."""
+        captured_handlers = {}
+        captured_context = {}
+
+        mock_app = Mock()
+        mock_builder = Mock()
+        mock_job_queue = Mock()
+
+        mock_builder.token.return_value = mock_builder
+        mock_builder.post_init.return_value = mock_builder
+        mock_builder.build.return_value = mock_app
+        mock_app.job_queue = mock_job_queue
+
+        def capture_handler(handler):
+            if hasattr(handler, "callback"):
+                captured_handlers[handler.callback.__name__] = handler.callback
+
+        mock_app.add_handler.side_effect = capture_handler
+
+        mock_job_queue.run_once = Mock()
+        mock_job_queue.run_repeating = Mock()
+        mock_job_queue.run_monthly = Mock()
+
+        def run_polling_side_effect():
+            mock_service.master_wallet.safes = None
+            update = Mock(spec=Update)
+            update.message = Mock()
+            update.message.reply_text = AsyncMock()
+
+            context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+            context.bot = Mock()
+            context.bot.send_message = AsyncMock()
+            context.job_queue = mock_job_queue
+            captured_context["value"] = context
+
+            asyncio.run(captured_handlers["balance"](update, context))
+
+        mock_app.run_polling.side_effect = run_polling_side_effect
+
+        with (
+            patch("triton.triton.Application.builder", return_value=mock_builder),
+            patch("triton.triton.yaml.safe_load", return_value=mock_config),
+            patch("triton.triton.OperateApp") as mock_operate_app,
+            patch("triton.triton.TritonService", return_value=mock_service),
+            patch("builtins.open", mock_open(read_data=yaml.dump(mock_config))),
+            patch("triton.triton.CHAT_ID", "123456789"),
+        ):
+            mock_operate = Mock()
+            mock_operate_service = Mock()
+            mock_operate_service.name = "service"
+            mock_operate_service.service_config_id = "service1"
+            mock_operate.service_manager.return_value.get_all_services.return_value = [
+                [mock_operate_service]
+            ]
+            mock_operate_app.return_value = mock_operate
+
+            from triton.triton import run_triton
+
+            run_triton()
+
+        context = captured_context["value"]
+        context.bot.send_message.assert_called()
+        sent_text = context.bot.send_message.call_args.kwargs["text"]
+        assert "Error in balance" in sent_text
