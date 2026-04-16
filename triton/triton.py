@@ -166,12 +166,17 @@ def _check_balance_thresholds(service_name: str, service: "TritonService") -> di
 
 def _run_script_command(script_path: Path) -> tuple[int, str]:
     """Run a shell script and return exit code plus combined output."""
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+    env.pop("POETRY_ACTIVE", None)
+
     result = subprocess.run(
         ["bash", str(script_path)],
         cwd=str(script_path.parent),
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
     output_parts = [result.stdout or "", result.stderr or ""]
     output = "\n".join(part.strip() for part in output_parts if part.strip())

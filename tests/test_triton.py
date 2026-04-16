@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch, mock_open
 
 import pytest
@@ -462,6 +463,21 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
         mock_update.message.reply_text.assert_any_call(
             text="[operator1] stop_service_cron.sh finished successfully.\n\ndone"
         )
+
+    def test_run_script_command_clears_virtualenv_flags(self):
+        """Ensure script runner does not inherit active virtualenv flags."""
+        from triton.triton import _run_script_command
+
+        mock_completed = Mock(returncode=0, stdout="ok", stderr="")
+        with (
+            patch.dict(os.environ, {"VIRTUAL_ENV": "/tmp/venv", "POETRY_ACTIVE": "1"}),
+            patch("triton.triton.subprocess.run", return_value=mock_completed) as run_mock,
+        ):
+            _run_script_command(Path("/tmp/run_service_cron.sh"))
+
+        called_env = run_mock.call_args.kwargs["env"]
+        assert "VIRTUAL_ENV" not in called_env
+        assert "POETRY_ACTIVE" not in called_env
 
     def test_scheduled_jobs_handler_empty(self, mock_triton_app, mock_update, mock_context):
         """Test scheduled_jobs handler with no jobs using the mock_triton_app fixture"""
