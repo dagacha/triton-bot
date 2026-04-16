@@ -166,9 +166,21 @@ def _check_balance_thresholds(service_name: str, service: "TritonService") -> di
 
 def _run_script_command(script_path: Path) -> tuple[int, str]:
     """Run a shell script and return exit code plus combined output."""
-    env = os.environ.copy()
-    env.pop("VIRTUAL_ENV", None)
-    env.pop("POETRY_ACTIVE", None)
+    # Run trader scripts with a sanitized environment to avoid leaking Triton .env
+    # values (e.g. thresholds) into operate/quickstart variable resolution.
+    env = {
+        "HOME": os.getenv("HOME", "/home/ubuntu"),
+        "PATH": os.getenv(
+            "PATH",
+            "/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        ),
+        "SHELL": os.getenv("SHELL", "/bin/bash"),
+        "USER": os.getenv("USER", "ubuntu"),
+        "LOGNAME": os.getenv("LOGNAME", os.getenv("USER", "ubuntu")),
+        "LANG": os.getenv("LANG", "C.UTF-8"),
+        "LC_ALL": os.getenv("LC_ALL", ""),
+    }
+    env = {key: value for key, value in env.items() if value}
 
     result = subprocess.run(
         ["bash", str(script_path)],

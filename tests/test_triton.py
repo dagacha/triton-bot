@@ -470,7 +470,16 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
 
         mock_completed = Mock(returncode=0, stdout="ok", stderr="")
         with (
-            patch.dict(os.environ, {"VIRTUAL_ENV": "/tmp/venv", "POETRY_ACTIVE": "1"}),
+            patch.dict(
+                os.environ,
+                {
+                    "VIRTUAL_ENV": "/tmp/venv",
+                    "POETRY_ACTIVE": "1",
+                    "AGENT_BALANCE_THRESHOLD": "0.1",
+                    "HOME": "/home/ubuntu",
+                    "PATH": "/usr/bin:/bin",
+                },
+            ),
             patch("triton.triton.subprocess.run", return_value=mock_completed) as run_mock,
         ):
             _run_script_command(Path("/tmp/run_service_cron.sh"))
@@ -478,6 +487,9 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
         called_env = run_mock.call_args.kwargs["env"]
         assert "VIRTUAL_ENV" not in called_env
         assert "POETRY_ACTIVE" not in called_env
+        assert "AGENT_BALANCE_THRESHOLD" not in called_env
+        assert called_env["HOME"] == "/home/ubuntu"
+        assert called_env["PATH"] == "/usr/bin:/bin"
 
     def test_scheduled_jobs_handler_empty(self, mock_triton_app, mock_update, mock_context):
         """Test scheduled_jobs handler with no jobs using the mock_triton_app fixture"""
