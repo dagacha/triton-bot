@@ -22,7 +22,13 @@ from operate.constants import OPERATE
 from operate.operate_types import Chain
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from triton.chain import get_olas_price, get_slots
 from triton.constants import (
@@ -575,6 +581,64 @@ Next epoch: {status['epoch_end']}"""
         except Exception as exc:  # pylint: disable=broad-except
             await report_error(context=context, update=update, where="stop", exc=exc)
 
+    async def run_all_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Run run_all_traders.sh from /home/ubuntu."""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            script_path = Path("/home/ubuntu/run_all_traders.sh")
+            if not script_path.is_file():
+                await update.message.reply_text(text=f"Script not found: {script_path}")
+                return
+
+            await update.message.reply_text(text="Running run_all_traders.sh...")
+            return_code, output = await _run_blocking_call(
+                _run_script_command, script_path, timeout=None
+            )
+            summary = (
+                "run_all_traders.sh finished successfully."
+                if return_code == 0
+                else f"run_all_traders.sh failed with exit code {return_code}."
+            )
+            await update.message.reply_text(
+                text=summary + "\n\n" + _format_script_output(output)
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="run_all", exc=exc)
+
+    async def stop_all_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Run stop_all_traders.sh from /home/ubuntu."""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            script_path = Path("/home/ubuntu/stop_all_traders.sh")
+            if not script_path.is_file():
+                await update.message.reply_text(text=f"Script not found: {script_path}")
+                return
+
+            await update.message.reply_text(text="Running stop_all_traders.sh...")
+            return_code, output = await _run_blocking_call(
+                _run_script_command, script_path, timeout=None
+            )
+            summary = (
+                "stop_all_traders.sh finished successfully."
+                if return_code == 0
+                else f"stop_all_traders.sh failed with exit code {return_code}."
+            )
+            await update.message.reply_text(
+                text=summary + "\n\n" + _format_script_output(output)
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="stop_all", exc=exc)
+
     async def ip_address(  # pylint: disable=unused-argument
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -712,6 +776,8 @@ Next epoch: {status['epoch_end']}"""
                 ("ip", "Get the bot public IP"),
                 ("run", "Run trader service cron script"),
                 ("stop", "Stop trader service cron script"),
+                ("run_all", "Run all traders"),
+                ("stop_all", "Stop all traders"),
             ]
         )
 
@@ -801,6 +867,14 @@ Next epoch: {status['epoch_end']}"""
     app.add_handler(CommandHandler("ip", ip_address))
     app.add_handler(CommandHandler("run", run_command))
     app.add_handler(CommandHandler("stop", stop_command))
+    app.add_handler(CommandHandler("run_all", run_all_command))
+    app.add_handler(CommandHandler("stop_all", stop_all_command))
+    app.add_handler(
+        MessageHandler(filters.Regex(r"^/run-all(?:@\w+)?$"), run_all_command)
+    )
+    app.add_handler(
+        MessageHandler(filters.Regex(r"^/stop-all(?:@\w+)?$"), stop_all_command)
+    )
     app.add_error_handler(error_handler)
 
     # Add tasks
