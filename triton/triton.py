@@ -4,6 +4,7 @@ import asyncio
 import datetime
 import logging
 import os
+import subprocess
 import typing as t
 from pathlib import Path
 
@@ -21,7 +22,13 @@ from operate.constants import OPERATE
 from operate.operate_types import Chain
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from triton.chain import get_olas_price, get_slots
 from triton.constants import (
@@ -163,6 +170,37 @@ def _check_balance_thresholds(service_name: str, service: "TritonService") -> di
     }
 
 
+def _run_script_command(script_path: Path) -> tuple[int, str]:
+    """Run a shell script and return exit code plus combined output."""
+    # Run trader scripts with a sanitized environment to avoid leaking Triton .env
+    # values (e.g. thresholds) into operate/quickstart variable resolution.
+    env = {
+        "HOME": os.getenv("HOME", "/home/ubuntu"),
+        "PATH": os.getenv(
+            "PATH",
+            "/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        ),
+        "SHELL": os.getenv("SHELL", "/bin/bash"),
+        "USER": os.getenv("USER", "ubuntu"),
+        "LOGNAME": os.getenv("LOGNAME", os.getenv("USER", "ubuntu")),
+        "LANG": os.getenv("LANG", "C.UTF-8"),
+        "LC_ALL": os.getenv("LC_ALL", ""),
+    }
+    env = {key: value for key, value in env.items() if value}
+
+    result = subprocess.run(
+        ["bash", str(script_path)],
+        cwd=str(script_path.parent),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    output_parts = [result.stdout or "", result.stderr or ""]
+    output = "\n".join(part.strip() for part in output_parts if part.strip())
+    return result.returncode, output
+
+
 def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
     """Main"""
 
@@ -180,6 +218,38 @@ def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
                 operate=operate,
                 service_config_id=service.service_config_id,
             )
+
+    def _resolve_operator_path(trader: str) -> tuple[str, Path]:
+        """Resolve a trader identifier to an operator key and quickstart path."""
+        trader_clean = trader.strip()
+        operators: dict[str, str] = config["operators"]
+
+        if trader_clean in operators:
+            operator_name = trader_clean
+        else:
+            trader_number = (
+                trader_clean[6:] if trader_clean.lower().startswith("trader") else trader_clean
+            )
+            if not trader_number.isdigit():
+                raise ValueError("Trader number must be numeric (e.g. 21).")
+
+            operator_name = f"trader{trader_number}"
+            if operator_name not in operators:
+                raise ValueError(f"Trader folder '{operator_name}' is not configured.")
+
+        quickstart_path = Path(operators[operator_name])
+        if not quickstart_path.is_dir():
+            raise ValueError(f"Quickstart path does not exist: {quickstart_path}")
+
+        return operator_name, quickstart_path
+
+    def _format_script_output(output: str, max_lines: int = 20) -> str:
+        """Keep script output compact for Telegram."""
+        if not output:
+            return "No output."
+        lines = output.splitlines()
+        trimmed = lines[-max_lines:]
+        return "\n".join(trimmed)
 
     async def report_error(
         *,
@@ -431,6 +501,144 @@ Next epoch: {status['epoch_end']}"""
         except Exception as exc:  # pylint: disable=broad-except
             await report_error(context=context, update=update, where="slots", exc=exc)
 
+    async def run_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Run run_service_cron.sh for a trader quickstart folder."""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            if not context.args:
+                await update.message.reply_text(
+                    text="Please provide trader folder number. Example: /run 21"
+                )
+                return
+
+            operator_name, quickstart_path = _resolve_operator_path(context.args[0])
+            script_path = quickstart_path / "run_service_cron.sh"
+            if not script_path.is_file():
+                await update.message.reply_text(
+                    text=f"Script not found: {script_path}"
+                )
+                return
+
+            await update.message.reply_text(
+                text=f"[{operator_name}] Running run_service_cron.sh..."
+            )
+            return_code, output = await _run_blocking_call(
+                _run_script_command, script_path, timeout=None
+            )
+            summary = (
+                f"[{operator_name}] run_service_cron.sh finished successfully."
+                if return_code == 0
+                else f"[{operator_name}] run_service_cron.sh failed with exit code {return_code}."
+            )
+            await update.message.reply_text(
+                text=summary + "\n\n" + _format_script_output(output)
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="run", exc=exc)
+
+    async def stop_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Run stop_service_cron.sh for a trader quickstart folder."""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            if not context.args:
+                await update.message.reply_text(
+                    text="Please provide trader folder number. Example: /stop 21"
+                )
+                return
+
+            operator_name, quickstart_path = _resolve_operator_path(context.args[0])
+            script_path = quickstart_path / "stop_service_cron.sh"
+            if not script_path.is_file():
+                await update.message.reply_text(
+                    text=f"Script not found: {script_path}"
+                )
+                return
+
+            await update.message.reply_text(
+                text=f"[{operator_name}] Running stop_service_cron.sh..."
+            )
+            return_code, output = await _run_blocking_call(
+                _run_script_command, script_path, timeout=None
+            )
+            summary = (
+                f"[{operator_name}] stop_service_cron.sh finished successfully."
+                if return_code == 0
+                else f"[{operator_name}] stop_service_cron.sh failed with exit code {return_code}."
+            )
+            await update.message.reply_text(
+                text=summary + "\n\n" + _format_script_output(output)
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="stop", exc=exc)
+
+    async def run_all_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Run run_all_traders.sh from /home/ubuntu."""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            script_path = Path("/home/ubuntu/run_all_traders.sh")
+            if not script_path.is_file():
+                await update.message.reply_text(text=f"Script not found: {script_path}")
+                return
+
+            await update.message.reply_text(text="Running run_all_traders.sh...")
+            return_code, output = await _run_blocking_call(
+                _run_script_command, script_path, timeout=None
+            )
+            summary = (
+                "run_all_traders.sh finished successfully."
+                if return_code == 0
+                else f"run_all_traders.sh failed with exit code {return_code}."
+            )
+            await update.message.reply_text(
+                text=summary + "\n\n" + _format_script_output(output)
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="run_all", exc=exc)
+
+    async def stop_all_command(
+        update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Run stop_all_traders.sh from /home/ubuntu."""
+        try:
+            if not update.message:
+                logger.error("Cannot send message, update.message is None")
+                return
+
+            script_path = Path("/home/ubuntu/stop_all_traders.sh")
+            if not script_path.is_file():
+                await update.message.reply_text(text=f"Script not found: {script_path}")
+                return
+
+            await update.message.reply_text(text="Running stop_all_traders.sh...")
+            return_code, output = await _run_blocking_call(
+                _run_script_command, script_path, timeout=None
+            )
+            summary = (
+                "stop_all_traders.sh finished successfully."
+                if return_code == 0
+                else f"stop_all_traders.sh failed with exit code {return_code}."
+            )
+            await update.message.reply_text(
+                text=summary + "\n\n" + _format_script_output(output)
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            await report_error(context=context, update=update, where="stop_all", exc=exc)
+
     async def ip_address(  # pylint: disable=unused-argument
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -566,6 +774,10 @@ Next epoch: {status['epoch_end']}"""
                 ("slots", "Check available staking slots"),
                 ("jobs", "Check the scheduled jobs"),
                 ("ip", "Get the bot public IP"),
+                ("run", "Run trader service cron script"),
+                ("stop", "Stop trader service cron script"),
+                ("run_all", "Run all traders"),
+                ("stop_all", "Stop all traders"),
             ]
         )
 
@@ -653,6 +865,16 @@ Next epoch: {status['epoch_end']}"""
     app.add_handler(CommandHandler("slots", slots))
     app.add_handler(CommandHandler("jobs", scheduled_jobs))
     app.add_handler(CommandHandler("ip", ip_address))
+    app.add_handler(CommandHandler("run", run_command))
+    app.add_handler(CommandHandler("stop", stop_command))
+    app.add_handler(CommandHandler("run_all", run_all_command))
+    app.add_handler(CommandHandler("stop_all", stop_all_command))
+    app.add_handler(
+        MessageHandler(filters.Regex(r"^/run-all(?:@\w+)?$"), run_all_command)
+    )
+    app.add_handler(
+        MessageHandler(filters.Regex(r"^/stop-all(?:@\w+)?$"), stop_all_command)
+    )
     app.add_error_handler(error_handler)
 
     # Add tasks

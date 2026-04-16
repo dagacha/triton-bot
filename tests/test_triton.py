@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch, mock_open
 
 import pytest
@@ -175,7 +176,18 @@ class TestTritonBot:
             all_functions = mock_triton_app()
             
             # Verify that we have the expected handlers
-            expected_handlers = ['staking_status', 'balance', 'claim', 'withdraw', 'slots', 'scheduled_jobs']
+            expected_handlers = [
+                'staking_status',
+                'balance',
+                'claim',
+                'withdraw',
+                'slots',
+                'scheduled_jobs',
+                'run_command',
+                'stop_command',
+                'run_all_command',
+                'stop_all_command',
+            ]
             expected_jobs = ['start', 'balance_check', 'autoclaim']
             
             for handler in expected_handlers:
@@ -381,6 +393,151 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
         mock_update.message.reply_text.assert_called_once_with(
             text="Public IP address: 1.2.3.4"
         )
+
+    def test_run_handler_requires_trader_number(self, mock_triton_app, mock_update):
+        """Test /run without args asks for trader number."""
+        run_handler = mock_triton_app("run_command")
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+
+        asyncio.run(run_handler(mock_update, context))
+
+        mock_update.message.reply_text.assert_called_once_with(
+            text="Please provide trader folder number. Example: /run 21"
+        )
+
+    def test_run_handler_success(self, mock_triton_app, mock_update):
+        """Test /run executes the trader run script."""
+        run_handler = mock_triton_app("run_command")
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = ["operator1"]
+
+        with (
+            patch("triton.triton.Path.is_dir", return_value=True),
+            patch("triton.triton.Path.is_file", return_value=True),
+            patch(
+                "triton.triton._run_blocking_call",
+                new=AsyncMock(return_value=(0, "line1\nline2")),
+            ),
+        ):
+            asyncio.run(run_handler(mock_update, context))
+
+        assert mock_update.message.reply_text.call_count == 2
+        mock_update.message.reply_text.assert_any_call(
+            text="[operator1] Running run_service_cron.sh..."
+        )
+        mock_update.message.reply_text.assert_any_call(
+            text="[operator1] run_service_cron.sh finished successfully.\n\nline1\nline2"
+        )
+
+    def test_stop_handler_requires_trader_number(self, mock_triton_app, mock_update):
+        """Test /stop without args asks for trader number."""
+        stop_handler = mock_triton_app("stop_command")
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+
+        asyncio.run(stop_handler(mock_update, context))
+
+        mock_update.message.reply_text.assert_called_once_with(
+            text="Please provide trader folder number. Example: /stop 21"
+        )
+
+    def test_stop_handler_success(self, mock_triton_app, mock_update):
+        """Test /stop executes the trader stop script."""
+        stop_handler = mock_triton_app("stop_command")
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = ["operator1"]
+
+        with (
+            patch("triton.triton.Path.is_dir", return_value=True),
+            patch("triton.triton.Path.is_file", return_value=True),
+            patch(
+                "triton.triton._run_blocking_call",
+                new=AsyncMock(return_value=(0, "done")),
+            ),
+        ):
+            asyncio.run(stop_handler(mock_update, context))
+
+        assert mock_update.message.reply_text.call_count == 2
+        mock_update.message.reply_text.assert_any_call(
+            text="[operator1] Running stop_service_cron.sh..."
+        )
+        mock_update.message.reply_text.assert_any_call(
+            text="[operator1] stop_service_cron.sh finished successfully.\n\ndone"
+        )
+
+    def test_run_all_handler_success(self, mock_triton_app, mock_update):
+        """Test /run_all executes run_all_traders.sh."""
+        run_all_handler = mock_triton_app("run_all_command")
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+
+        with (
+            patch("triton.triton.Path.is_file", return_value=True),
+            patch(
+                "triton.triton._run_blocking_call",
+                new=AsyncMock(return_value=(0, "all started")),
+            ),
+        ):
+            asyncio.run(run_all_handler(mock_update, context))
+
+        assert mock_update.message.reply_text.call_count == 2
+        mock_update.message.reply_text.assert_any_call(
+            text="Running run_all_traders.sh..."
+        )
+        mock_update.message.reply_text.assert_any_call(
+            text="run_all_traders.sh finished successfully.\n\nall started"
+        )
+
+    def test_stop_all_handler_success(self, mock_triton_app, mock_update):
+        """Test /stop_all executes stop_all_traders.sh."""
+        stop_all_handler = mock_triton_app("stop_all_command")
+        context = Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+
+        with (
+            patch("triton.triton.Path.is_file", return_value=True),
+            patch(
+                "triton.triton._run_blocking_call",
+                new=AsyncMock(return_value=(0, "all stopped")),
+            ),
+        ):
+            asyncio.run(stop_all_handler(mock_update, context))
+
+        assert mock_update.message.reply_text.call_count == 2
+        mock_update.message.reply_text.assert_any_call(
+            text="Running stop_all_traders.sh..."
+        )
+        mock_update.message.reply_text.assert_any_call(
+            text="stop_all_traders.sh finished successfully.\n\nall stopped"
+        )
+
+    def test_run_script_command_clears_virtualenv_flags(self):
+        """Ensure script runner does not inherit active virtualenv flags."""
+        from triton.triton import _run_script_command
+
+        mock_completed = Mock(returncode=0, stdout="ok", stderr="")
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "VIRTUAL_ENV": "/tmp/venv",
+                    "POETRY_ACTIVE": "1",
+                    "AGENT_BALANCE_THRESHOLD": "0.1",
+                    "HOME": "/home/ubuntu",
+                    "PATH": "/usr/bin:/bin",
+                },
+            ),
+            patch("triton.triton.subprocess.run", return_value=mock_completed) as run_mock,
+        ):
+            _run_script_command(Path("/tmp/run_service_cron.sh"))
+
+        called_env = run_mock.call_args.kwargs["env"]
+        assert "VIRTUAL_ENV" not in called_env
+        assert "POETRY_ACTIVE" not in called_env
+        assert "AGENT_BALANCE_THRESHOLD" not in called_env
+        assert called_env["HOME"] == "/home/ubuntu"
+        assert called_env["PATH"] == "/usr/bin:/bin"
 
     def test_scheduled_jobs_handler_empty(self, mock_triton_app, mock_update, mock_context):
         """Test scheduled_jobs handler with no jobs using the mock_triton_app fixture"""
