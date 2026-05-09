@@ -10,6 +10,7 @@ from pathlib import Path
 
 import aiohttp
 import dotenv
+import httpx
 import pytz
 import yaml
 from triton.rpc import configure_runtime_rpcs
@@ -22,6 +23,7 @@ from operate.constants import OPERATE
 from operate.operate_types import Chain
 from telegram import Update
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -686,11 +688,31 @@ Next epoch: {status['epoch_end']}"""
 
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Log and notify on unexpected errors."""
-        logger.error("Unhandled exception while processing update", exc_info=context.error)
+        err = context.error
+
+        # Transient network errors are normal during long-polling against
+        # Telegram's edge. PTB reconnects on its own; only log so the chat
+        # isn't spammed with benign disconnects.
+        transient_errors = (
+            TimedOut,
+            NetworkError,
+            httpx.RemoteProtocolError,
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.PoolTimeout,
+        )
+        if isinstance(err, transient_errors):
+            logger.warning("Transient network error: %s", err)
+            return
+
+        logger.error("Unhandled exception while processing update", exc_info=err)
         try:
             await context.bot.send_message(
                 chat_id=CHAT_ID,
-                text=f"Unhandled error: {context.error}",
+                text=f"Unhandled error: {err}",
             )
         except Exception:  # pylint: disable=broad-except
             logger.error("Failed to send error message to chat", exc_info=True)
@@ -851,7 +873,22 @@ Next epoch: {status['epoch_end']}"""
             await report_error(context=context, update=None, where="autoclaim", exc=exc)
 
     # Create bot
-    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
+    # Generous timeouts (>= the 30s long-poll window) reduce client-side
+    # cuts and the resulting httpx.RemoteProtocolError storms.
+    app = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .post_init(post_init)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .pool_timeout(10.0)
+        .get_updates_connect_timeout(40.0)
+        .get_updates_read_timeout(40.0)
+        .get_updates_write_timeout(40.0)
+        .get_updates_pool_timeout(10.0)
+        .build()
+    )
     if app.job_queue is None:
         raise RuntimeError("Job queue is not available")
 
