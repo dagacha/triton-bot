@@ -33,8 +33,8 @@ Point triton to all your trader_quickstart folder locations (they have to contai
 1. Clone the repo:
 
     ```bash
-    git clone https://github.com/valory-xyz/triton-bot.git
-    cd triton
+    git clone https://github.com/dagacha/triton-bot.git
+    cd triton-bot
     ```
 
 2. Prepare the virtual environment:
