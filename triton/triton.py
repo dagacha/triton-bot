@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime
+import getpass
 import logging
 import os
 import subprocess
@@ -176,15 +177,14 @@ def _run_script_command(script_path: Path) -> tuple[int, str]:
     """Run a shell script and return exit code plus combined output."""
     # Run trader scripts with a sanitized environment to avoid leaking Triton .env
     # values (e.g. thresholds) into operate/quickstart variable resolution.
+    current_home = os.getenv("HOME") or os.path.expanduser("~")
+    current_user = os.getenv("USER") or os.getenv("LOGNAME") or getpass.getuser()
     env = {
-        "HOME": os.getenv("HOME", "/home/ubuntu"),
-        "PATH": os.getenv(
-            "PATH",
-            "/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-        ),
+        "HOME": current_home,
+        "PATH": os.getenv("PATH", f"{current_home}/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"),
         "SHELL": os.getenv("SHELL", "/bin/bash"),
-        "USER": os.getenv("USER", "ubuntu"),
-        "LOGNAME": os.getenv("LOGNAME", os.getenv("USER", "ubuntu")),
+        "USER": current_user,
+        "LOGNAME": current_user,
         "LANG": os.getenv("LANG", "C.UTF-8"),
         "LC_ALL": os.getenv("LC_ALL", ""),
     }
