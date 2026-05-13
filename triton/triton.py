@@ -586,13 +586,13 @@ Next epoch: {status['epoch_end']}"""
     async def run_all_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Run run_all_traders.sh from /home/ubuntu."""
+        """Run run_all_traders.sh from the user's home directory."""
         try:
             if not update.message:
                 logger.error("Cannot send message, update.message is None")
                 return
 
-            script_path = Path("/home/ubuntu/run_all_traders.sh")
+            script_path = Path.home() / "run_all_traders.sh"
             if not script_path.is_file():
                 await update.message.reply_text(text=f"Script not found: {script_path}")
                 return
@@ -615,13 +615,13 @@ Next epoch: {status['epoch_end']}"""
     async def stop_all_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Run stop_all_traders.sh from /home/ubuntu."""
+        """Run stop_all_traders.sh from the user's home directory."""
         try:
             if not update.message:
                 logger.error("Cannot send message, update.message is None")
                 return
 
-            script_path = Path("/home/ubuntu/stop_all_traders.sh")
+            script_path = Path.home() / "stop_all_traders.sh"
             if not script_path.is_file():
                 await update.message.reply_text(text=f"Script not found: {script_path}")
                 return
@@ -640,6 +640,7 @@ Next epoch: {status['epoch_end']}"""
             )
         except Exception as exc:  # pylint: disable=broad-except
             await report_error(context=context, update=update, where="stop_all", exc=exc)
+
 
     async def ip_address(  # pylint: disable=unused-argument
         update: Update, context: ContextTypes.DEFAULT_TYPE
