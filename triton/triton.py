@@ -706,7 +706,7 @@ Next epoch: {status['epoch_end']}"""
             httpx.PoolTimeout,
         )
         if isinstance(err, transient_errors):
-            logger.warning("Transient network error: %s", err)
+            logger.info("Transient network error: %s", err)
             return
 
         logger.error("Unhandled exception while processing update", exc_info=err)
@@ -884,9 +884,9 @@ Next epoch: {status['epoch_end']}"""
         .read_timeout(30.0)
         .write_timeout(30.0)
         .pool_timeout(10.0)
-        .get_updates_connect_timeout(40.0)
-        .get_updates_read_timeout(40.0)
-        .get_updates_write_timeout(40.0)
+        .get_updates_connect_timeout(60.0)
+        .get_updates_read_timeout(60.0)
+        .get_updates_write_timeout(60.0)
         .get_updates_pool_timeout(10.0)
         .build()
     )
