@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple, cast
 import dotenv
 from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
 from requests.exceptions import ConnectionError as RequestsConnectionError
+from triton.exceptions import ContractExecutionError, InsufficientFundsError, RateLimitError
 from triton.rpc import configure_runtime_rpcs
 
 dotenv.load_dotenv(override=True)
@@ -171,7 +172,14 @@ def _transact_with_receipt(ledger_api, crypto, tx_builder) -> dict:
                 )
                 continue
             if not _should_retry(error):
-                raise ChainInteractionError(error) from e
+                error_lower = error.lower()
+                if "revert" in error_lower:
+                    raise ContractExecutionError(e) from e
+                if "insufficient funds" in error_lower:
+                    raise InsufficientFundsError(e) from e
+                if "rate limit" in error_lower:
+                    raise RateLimitError(e) from e
+                raise ChainInteractionError(e) from e
             if _should_rebuild(error):
                 tx_dict = None
 
