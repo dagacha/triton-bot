@@ -10,13 +10,11 @@ import typing as t
 from pathlib import Path
 
 import aiohttp
-import dotenv
 import httpx
 import pytz
 import yaml
 from triton.rpc import configure_runtime_rpcs
 
-dotenv.load_dotenv(override=True)
 configure_runtime_rpcs()
 
 from operate.cli import OperateApp

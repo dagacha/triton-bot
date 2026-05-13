@@ -11,13 +11,11 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import List, Optional, Tuple, cast
 
-import dotenv
 from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from triton.exceptions import ContractExecutionError, InsufficientFundsError, RateLimitError
 from triton.rpc import configure_runtime_rpcs
 
-dotenv.load_dotenv(override=True)
 configure_runtime_rpcs()
 
 from operate.cli import OperateApp
@@ -105,28 +103,30 @@ def _should_rebuild(error: str) -> bool:
 
 def _normalize_tx_fee_fields(tx_dict: dict) -> dict:
     """Ensure the transaction uses valid legacy or EIP-1559 fee fields."""
-    nested_gas_price = tx_dict.get("gasPrice")
+    result = dict(tx_dict)
+    nested_gas_price = result.get("gasPrice")
     if isinstance(nested_gas_price, Mapping):
-        tx_dict.pop("gasPrice", None)
-        tx_dict.update(_normalize_gas_pricing({"gasPrice": nested_gas_price}))
-    if "maxFeePerGas" in tx_dict or "maxPriorityFeePerGas" in tx_dict:
-        tx_dict.pop("gasPrice", None)
-    return tx_dict
+        result.pop("gasPrice", None)
+        result.update(_normalize_gas_pricing({"gasPrice": nested_gas_price}))
+    if "maxFeePerGas" in result or "maxPriorityFeePerGas" in result:
+        result.pop("gasPrice", None)
+    return result
 
 
 def _ensure_safe_tx_gas(ledger_api, tx_dict: dict) -> dict:
     """Replace unusable Safe tx gas with a real estimate or a sane fallback."""
-    current_gas = tx_dict.get("gas")
+    result = dict(tx_dict)
+    current_gas = result.get("gas")
     if isinstance(current_gas, int) and current_gas > 21_000:
-        return tx_dict
+        return result
 
-    estimate_tx = dict(tx_dict)
+    estimate_tx = dict(result)
     estimate_tx.pop("gas", None)
     try:
-        tx_dict["gas"] = int(ledger_api.api.eth.estimate_gas(estimate_tx)) + 50_000
+        result["gas"] = int(ledger_api.api.eth.estimate_gas(estimate_tx)) + 50_000
     except Exception:  # pylint: disable=broad-except
-        tx_dict["gas"] = SAFE_TRANSFER_FALLBACK_GAS
-    return tx_dict
+        result["gas"] = SAFE_TRANSFER_FALLBACK_GAS
+    return result
 
 
 def _transact_with_receipt(ledger_api, crypto, tx_builder) -> dict:
@@ -340,7 +340,7 @@ class TritonService:
                 .functions.mechMarketplace()
                 .call()
             )
-        except Exception:  # pylint: disable=broad-except
+        except (ChainInteractionError, RPCError, RequestsConnectionError):
             try:
                 mech_activity_contract = cast(
                     MechActivityContract,
@@ -356,7 +356,7 @@ class TritonService:
                     .functions.agentMech()
                     .call()
                 )
-            except Exception:  # pylint: disable=broad-except
+            except (ChainInteractionError, RPCError, RequestsConnectionError):
                 mech = "0x77af31De935740567Cf4fF1986D04B2c964A786a"
 
         return get_staking_status(
@@ -424,7 +424,7 @@ class TritonService:
                 service_config_id=self.service.service_config_id,
                 chain=self.service.home_chain,
             )
-        except Exception:  # pylint: disable=broad-except
+        except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
             self.logger.error("Failed to claim rewards. %s", traceback.format_exc())
 
         return 0
@@ -440,7 +440,7 @@ class TritonService:
 
         try:
             master_safe_olas_balance = get_olas_balance(master_safe)
-        except Exception:  # pylint: disable=broad-except
+        except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
             self.logger.error("Failed to get OLAS balance. %s", traceback.format_exc())
             master_safe_olas_balance = 0
 
@@ -464,7 +464,7 @@ class TritonService:
                 withdrawals.append(
                     (tx_hash, master_safe_olas_balance / 1e18, "Master Safe")
                 )
-            except Exception:  # pylint: disable=broad-except
+            except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
                 self.logger.error("Failed to withdraw OLAS. %s", traceback.format_exc())
         else:
             self.logger.info("No Master safe OLAS to withdraw")
@@ -492,7 +492,7 @@ class TritonService:
                     amount=service_safe_olas_balance * 1e18,
                 )
                 withdrawals.append((tx_hash, service_safe_olas_balance, "Service Safe"))
-        except Exception:  # pylint: disable=broad-except
+        except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
             self.logger.error(
                 "Failed to withdraw OLAS from service safe. %s", traceback.format_exc()
             )

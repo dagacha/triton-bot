@@ -13,10 +13,10 @@ def wei_to_unit(wei: int) -> float:
 
 
 def wei_to_olas(wei: int) -> str:
-    """Converts and formats wei to WxDAI."""
+    """Converts and formats wei to OLAS."""
     return f"{wei_to_unit(wei):.2f} OLAS"
 
 
-def str_to_bool(value: str) -> bool:
-    """Converts string to bool"""
+def str_to_bool(value: str | bool) -> bool:
+    """Converts string or bool to bool"""
     return str(value).lower() in ["true", "1", "yes"]

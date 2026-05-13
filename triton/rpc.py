@@ -2,12 +2,11 @@
 
 import os
 
-import dotenv
 from operate.ledger import DEFAULT_LEDGER_APIS, DEFAULT_RPCS
 from operate.operate_types import Chain
 
-dotenv.load_dotenv(override=True)
-
+# Ensure env vars are loaded (constants.py is the canonical location)
+from triton import constants  # noqa: F401
 
 def configure_runtime_rpcs() -> None:
     """Apply RPC URLs from the environment to operate's runtime caches."""

@@ -4,6 +4,7 @@ import os
 import pytest
 from unittest.mock import patch, MagicMock
 
+from autonomy.chain.exceptions import ChainInteractionError
 from operate.operate_types import Chain
 from triton.service import (
     SAFE_TRANSFER_FALLBACK_GAS,
@@ -176,7 +177,7 @@ class TestTritonService:
         self.mock_service_manager.get_eth_safe_tx_builder.return_value = mock_sftxb
         
         # Mock RequesterActivityCheckerContract to fail
-        mock_requester_contract.from_dir.side_effect = Exception("RequesterActivityChecker failed")
+        mock_requester_contract.from_dir.side_effect = ChainInteractionError("RequesterActivityChecker failed")
         
         # Mock MechActivityContract to succeed
         mock_mech_instance = MagicMock()
@@ -219,8 +220,8 @@ class TestTritonService:
         self.mock_service_manager.get_eth_safe_tx_builder.return_value = mock_sftxb
         
         # Mock both contracts to fail
-        mock_requester_contract.from_dir.side_effect = Exception("RequesterActivityChecker failed")
-        mock_mech_contract.from_dir.side_effect = Exception("MechActivity failed")
+        mock_requester_contract.from_dir.side_effect = ChainInteractionError("RequesterActivityChecker failed")
+        mock_mech_contract.from_dir.side_effect = ChainInteractionError("MechActivity failed")
         
         service = TritonService(self.mock_operate, "test_config_id")
         result = service.get_staking_status()
@@ -285,7 +286,7 @@ class TestTritonService:
     @patch('triton.service.traceback')
     def test_claim_rewards_exception(self, mock_traceback):
         """Test claim_rewards method with exception"""
-        self.mock_service_manager.claim_on_chain_from_safe.side_effect = Exception("Test error")
+        self.mock_service_manager.claim_on_chain_from_safe.side_effect = ChainInteractionError("Test error")
         mock_traceback.format_exc.return_value = "Traceback info"
         
         service = TritonService(self.mock_operate, "test_config_id")
@@ -320,7 +321,7 @@ class TestTritonService:
     @patch('triton.service.traceback')
     def test_withdraw_rewards_get_balance_exception(self, mock_traceback, mock_get_olas_balance):
         """Test withdraw_rewards method with exception getting balance"""
-        mock_get_olas_balance.side_effect = Exception("Test error")
+        mock_get_olas_balance.side_effect = ChainInteractionError("Test error")
         mock_traceback.format_exc.return_value = "Traceback info"
         
         service = TritonService(self.mock_operate, "test_config_id")
@@ -366,7 +367,7 @@ class TestTritonService:
     ):
         """Test withdraw_rewards method with transfer exception"""
         mock_get_olas_balance.side_effect = [1000000000000000000, 0]
-        mock_transfer_erc20_from_safe_compat.side_effect = Exception("Transfer failed")
+        mock_transfer_erc20_from_safe_compat.side_effect = ChainInteractionError("Transfer failed")
         mock_traceback.format_exc.return_value = "Traceback info"
         
         service = TritonService(self.mock_operate, "test_config_id")
