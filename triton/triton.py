@@ -13,11 +13,6 @@ import aiohttp
 import httpx
 import pytz
 import yaml
-
-from triton.rpc import configure_runtime_rpcs
-
-configure_runtime_rpcs()
-
 from operate.cli import OperateApp
 from operate.constants import OPERATE
 from operate.operate_types import Chain
@@ -48,8 +43,11 @@ from triton.constants import (
     SAFE_BALANCE_THRESHOLD,
     TELEGRAM_TOKEN,
 )
+from triton.rpc import configure_runtime_rpcs
 from triton.service import TritonService
 from triton.tools import escape_markdown_v2
+
+configure_runtime_rpcs()
 
 logger = logging.getLogger("telegram_bot")
 
@@ -291,7 +289,7 @@ def run_triton() -> None:  # pylint: disable=too-many-statements,too-many-locals
             master_safe_addresses: set[str] = set()
             results = await _run_service_tasks(services, _collect_staking_status)
             for service_name, result, error in results:
-                if error is not None:
+                if error is not None or result is None:
                     logger.error(
                         "Failed to get staking status for %s",
                         service_name,
@@ -357,7 +355,7 @@ Next epoch: {status['epoch_end']}"""
             errors = []
             results = await _run_service_tasks(services, _collect_balance)
             for service_name, result, error in results:
-                if error is not None:
+                if error is not None or result is None:
                     logger.error(
                         "Failed to get balances for %s", service_name, exc_info=error
                     )
@@ -377,14 +375,28 @@ Next epoch: {status['epoch_end']}"""
                 master_safes = result["master_safes"]
                 if master_safes is None:
                     raise ValueError("Master wallet safes not found")
+                agent_url = GNOSISSCAN_ADDRESS_URL.format(
+                    address=result["agent_address"]
+                )
+                service_url = GNOSISSCAN_ADDRESS_URL.format(
+                    address=result["service_safe"]
+                )
+                master_eoa_url = GNOSISSCAN_ADDRESS_URL.format(
+                    address=result["master_eoa_address"]
+                )
+                master_safe_url = GNOSISSCAN_ADDRESS_URL.format(
+                    address=master_safes[Chain.from_string(result["home_chain"])]
+                )
                 message = (
                     r"\["
                     + escape_markdown_v2(service_name)
                     + r"]"
-                    + f"\n[Agent EOA]({GNOSISSCAN_ADDRESS_URL.format(address=result['agent_address'])}) = {agent_native_balance:g} xDAI"
-                    + f"\n[Service Safe]({GNOSISSCAN_ADDRESS_URL.format(address=result['service_safe'])}) = {safe_native_balance:g} xDAI  {safe_wrapped_native_balance:g} wxDAI  {safe_olas_balance:g} OLAS"
-                    + f"\n[Master EOA]({GNOSISSCAN_ADDRESS_URL.format(address=result['master_eoa_address'])}) = {master_eoa_native_balance:g} xDAI"
-                    + f"\n[Master Safe]({GNOSISSCAN_ADDRESS_URL.format(address=master_safes[Chain.from_string(result['home_chain'])])}) = {master_safe_native_balance:g} xDAI  {master_safe_olas_balance:g} OLAS"
+                    + f"\n[Agent EOA]({agent_url}) = {agent_native_balance:g} xDAI"
+                    + f"\n[Service Safe]({service_url}) = {safe_native_balance:g} xDAI  "
+                    + f"{safe_wrapped_native_balance:g} wxDAI  {safe_olas_balance:g} OLAS"
+                    + f"\n[Master EOA]({master_eoa_url}) = {master_eoa_native_balance:g} xDAI"
+                    + f"\n[Master Safe]({master_safe_url}) = {master_safe_native_balance:g} xDAI  "
+                    + f"{master_safe_olas_balance:g} OLAS"
                 )
 
                 messages.append(message)
@@ -420,7 +432,7 @@ Next epoch: {status['epoch_end']}"""
             errors = []
             results = await _run_service_tasks(services, _claim_rewards, timeout=None)
             for service_name, result, error in results:
-                if error is not None:
+                if error is not None or result is None:
                     logger.error(
                         "Failed to claim rewards for %s", service_name, exc_info=error
                     )
@@ -457,7 +469,7 @@ Next epoch: {status['epoch_end']}"""
                 services, _withdraw_rewards, timeout=None
             )
             for service_name, result, error in results:
-                if error is not None:
+                if error is not None or result is None:
                     logger.error(
                         "Failed to withdraw rewards for %s",
                         service_name,
@@ -750,7 +762,7 @@ Next epoch: {status['epoch_end']}"""
             logger.info("Running balance check task")
             results = await _run_service_tasks(services, _check_balance_thresholds)
             for service_name, result, error in results:
-                if error is not None:
+                if error is not None or result is None:
                     logger.error(
                         "Balance check failed for %s", service_name, exc_info=error
                     )
@@ -766,7 +778,13 @@ Next epoch: {status['epoch_end']}"""
                 master_safe_address = result["master_safe_address"]
 
                 if agent_native_balance < AGENT_BALANCE_THRESHOLD:
-                    message = f"[{service_name}] [Agent EOA]({GNOSISSCAN_ADDRESS_URL.format(address=result['agent_address'])}) balance is {agent_native_balance:g} xDAI"
+                    agent_url = GNOSISSCAN_ADDRESS_URL.format(
+                        address=result["agent_address"]
+                    )
+                    message = (
+                        f"[{service_name}] [Agent EOA]({agent_url}) "
+                        f"balance is {agent_native_balance:g} xDAI"
+                    )
                     await context.bot.send_message(
                         chat_id=CHAT_ID,
                         text=message,
@@ -778,7 +796,14 @@ Next epoch: {status['epoch_end']}"""
                     safe_native_balance + safe_wrapped_native_balance
                     < SAFE_BALANCE_THRESHOLD
                 ):
-                    message = f"[{service_name}] [Service Safe]({GNOSISSCAN_ADDRESS_URL.format(address=result['service_safe'])}) balance is {safe_native_balance:g} xDAI  {safe_wrapped_native_balance:g} wxDAI"
+                    service_url = GNOSISSCAN_ADDRESS_URL.format(
+                        address=result["service_safe"]
+                    )
+                    message = (
+                        f"[{service_name}] [Service Safe]({service_url}) "
+                        f"balance is {safe_native_balance:g} xDAI  "
+                        f"{safe_wrapped_native_balance:g} wxDAI"
+                    )
                     await context.bot.send_message(
                         chat_id=CHAT_ID,
                         text=message,
@@ -836,10 +861,10 @@ Next epoch: {status['epoch_end']}"""
             claim_results = await _run_service_tasks(
                 services, _claim_rewards, timeout=None
             )
-            for service_name, _, error in claim_results:
-                if error is not None:
+            for service_name, result, error in claim_results:
+                if error is not None or result is None:
                     logger.error(
-                        "Autoclaim claim failed for %s", service_name, exc_info=error
+                        "Failed to claim rewards for %s", service_name, exc_info=error
                     )
                     messages.append(
                         r"\["
@@ -847,13 +872,14 @@ Next epoch: {status['epoch_end']}"""
                         + r"] "
                         + f"(Autoclaim) Error while claiming rewards: {error}"
                     )
+                    continue
 
             # Withdraw
             withdraw_results = await _run_service_tasks(
                 services, _withdraw_rewards, timeout=None
             )
             for service_name, result, error in withdraw_results:
-                if error is not None:
+                if error is not None or result is None:
                     logger.error(
                         "Autoclaim withdraw failed for %s", service_name, exc_info=error
                     )
