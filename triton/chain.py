@@ -16,7 +16,6 @@ from urllib.parse import urlencode
 
 import pytz
 import requests
-
 from operate.constants import IPFS_ADDRESS
 from operate.ledger.profiles import WRAPPED_NATIVE_ASSET
 from operate.operate_types import ChainType

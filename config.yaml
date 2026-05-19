@@ -1,2 +1,9 @@
 operators:
-  agent1: /path/to/quickstart
+  trader13: /home/ubuntu/13-trader/quickstart
+  trader14: /home/ubuntu/14-trader/quickstart
+  trader15: /home/ubuntu/15-trader/quickstart
+  trader22: /home/ubuntu/22-trader/quickstart
+  trader29: /home/ubuntu/29-trader/quickstart
+  trader36: /home/ubuntu/36-trader/quickstart
+  trader39: /home/ubuntu/39-trader/quickstart
+  trader40: /home/ubuntu/40-trader/quickstart

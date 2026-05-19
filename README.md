@@ -60,15 +60,22 @@ Point triton to all your trader_quickstart folder locations (they have to contai
     - `WITHDRAWAL_ADDRESS`: optional. An address to send your rewards to.
     - `AGENT_BALANCE_THRESHOLD`: if the agent balance goes lower than this, you will receive an alert.
     - `SAFE_BALANCE_THRESHOLD`: if the safe balance goes lower than this, you will receive an alert.
+    - `MASTER_SAFE_BALANCE_THRESHOLD`: if the master safe balance goes lower than this, you will receive an alert.
     - `MANUAL_CLAIM`: enable manual claiming command. Defaults to true.
     - `AUTOCLAIM`: enable automatic claiming command (claims once per month). Defaults to false.
     - `AUTOCLAIM_DAY`: day of the month for the autoclaim task to run.
     - `AUTOCLAIM_HOUR_UTC`: UTC hour for the autoclaim task to run.
     - `LOCAL_TIMEZONE`: Local timezone for the time shown in the alerts.
 
-    Make sure you start your bot by sending `/start` command to it on Telegram.
-
 4. Edit `config.yaml` and add the path to your trader_quickstart folders. Multiple instances can be added.
+
+    The `config.yaml` should follow this structure:
+
+    ```yaml
+    operators:
+      name1: /path/to/trader1
+      name2: /path/to/trader2
+    ```
 
 
 ## Run Triton as a python script
@@ -101,7 +108,13 @@ poetry run pytest -q tests/test_triton.py
     make install
     ```
 
-2. Verify it is working:
+2. Start the service:
+
+    ```bash
+    make start
+    ```
+
+3. Verify it is working:
     ```bash
     systemctl status triton.service
     ```
