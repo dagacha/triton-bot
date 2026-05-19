@@ -1,9 +1,9 @@
 operators:
-  trader13: /home/ubuntu/13-trader/quickstart
-  trader14: /home/ubuntu/14-trader/quickstart
-  trader15: /home/ubuntu/15-trader/quickstart
-  trader22: /home/ubuntu/22-trader/quickstart
-  trader29: /home/ubuntu/29-trader/quickstart
-  trader36: /home/ubuntu/36-trader/quickstart
-  trader39: /home/ubuntu/39-trader/quickstart
-  trader40: /home/ubuntu/40-trader/quickstart
+  trader13: /path/to/trader13/quickstart
+  trader14: /path/to/trader14/quickstart
+  trader15: /path/to/trader15/quickstart
+  trader22: /path/to/trader22/quickstart
+  trader29: /path/to/trader29/quickstart
+  trader36: /path/to/trader36/quickstart
+  trader39: /path/to/trader39/quickstart
+  trader40: /path/to/trader40/quickstart

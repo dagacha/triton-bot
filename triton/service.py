@@ -41,8 +41,6 @@ configure_runtime_rpcs()
 
 SAFE_TRANSFER_FALLBACK_GAS = int(os.getenv("SAFE_TRANSFER_FALLBACK_GAS", "500000"))
 
-SAFE_TRANSFER_FALLBACK_GAS = int(os.getenv("SAFE_TRANSFER_FALLBACK_GAS", "500000"))
-
 _RETRYABLE_CHAIN_ERRORS = (
     "FeeTooLow",
     "ReplacementNotAllowed",
