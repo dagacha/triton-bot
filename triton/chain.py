@@ -14,10 +14,8 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlencode
 
-import dotenv
 import pytz
 import requests
-dotenv.load_dotenv(override=True)
 
 from operate.constants import IPFS_ADDRESS
 from operate.ledger.profiles import WRAPPED_NATIVE_ASSET

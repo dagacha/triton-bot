@@ -41,6 +41,14 @@ class TestTritonBot:
             # Configure the builder chain
             mock_builder.token.return_value = mock_builder
             mock_builder.post_init.return_value = mock_builder
+            mock_builder.connect_timeout.return_value = mock_builder
+            mock_builder.read_timeout.return_value = mock_builder
+            mock_builder.write_timeout.return_value = mock_builder
+            mock_builder.pool_timeout.return_value = mock_builder
+            mock_builder.get_updates_connect_timeout.return_value = mock_builder
+            mock_builder.get_updates_read_timeout.return_value = mock_builder
+            mock_builder.get_updates_write_timeout.return_value = mock_builder
+            mock_builder.get_updates_pool_timeout.return_value = mock_builder
             mock_builder.build.return_value = mock_app
 
             # Configure the app
@@ -170,7 +178,7 @@ class TestTritonBot:
             'TELEGRAM_TOKEN': 'test_token',
             'CHAT_ID': '123456789',
             'OPERATE_USER_PASSWORD': 'test_password',
-        }), patch('triton.triton.dotenv.load_dotenv'):
+        }):
             
             # Get all handlers and jobs
             all_functions = mock_triton_app()
@@ -700,6 +708,14 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
 
         mock_builder.token.return_value = mock_builder
         mock_builder.post_init.return_value = mock_builder
+        mock_builder.connect_timeout.return_value = mock_builder
+        mock_builder.read_timeout.return_value = mock_builder
+        mock_builder.write_timeout.return_value = mock_builder
+        mock_builder.pool_timeout.return_value = mock_builder
+        mock_builder.get_updates_connect_timeout.return_value = mock_builder
+        mock_builder.get_updates_read_timeout.return_value = mock_builder
+        mock_builder.get_updates_write_timeout.return_value = mock_builder
+        mock_builder.get_updates_pool_timeout.return_value = mock_builder
         mock_builder.build.return_value = mock_app
         mock_app.job_queue = mock_job_queue
 
