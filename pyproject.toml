@@ -31,6 +31,10 @@ types-pyyaml = "^6.0.12.20250516"
 module = ["operate.*"]
 follow_untyped_imports = true
 
+[[tool.mypy.overrides]]
+module = ["packages.valory.contracts.gnosis_safe.*"]
+ignore_missing_imports = true
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

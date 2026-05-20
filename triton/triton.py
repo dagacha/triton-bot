@@ -347,6 +347,41 @@ Next epoch: {status['epoch_end']}"""
                 context=context, update=update, where="staking_status", exc=exc
             )
 
+    def _format_balance_message(
+        service_name: str, result: dict
+    ) -> str:  # pylint: disable=too-many-locals,too-many-statements
+        """Format a single service balance message."""
+        balances = result["balances"]
+        agent_native_balance = balances["agent_eoa_native_balance"]
+        safe_native_balance = balances["service_safe_native_balance"]
+        safe_wrapped_native_balance = balances["service_safe_wrapped_native_balance"]
+        safe_olas_balance = balances["service_safe_olas_balance"]
+        master_eoa_native_balance = balances["master_eoa_native_balance"]
+        master_safe_native_balance = balances["master_safe_native_balance"]
+        master_safe_olas_balance = balances["master_safe_olas_balance"]
+        master_safes = result["master_safes"]
+        if master_safes is None:
+            raise ValueError("Master wallet safes not found")
+        agent_url = GNOSISSCAN_ADDRESS_URL.format(address=result["agent_address"])
+        service_url = GNOSISSCAN_ADDRESS_URL.format(address=result["service_safe"])
+        master_eoa_url = GNOSISSCAN_ADDRESS_URL.format(
+            address=result["master_eoa_address"]
+        )
+        master_safe_url = GNOSISSCAN_ADDRESS_URL.format(
+            address=master_safes[Chain.from_string(result["home_chain"])]
+        )
+        return (
+            r"\["
+            + escape_markdown_v2(service_name)
+            + r"]"
+            + f"\n[Agent EOA]({agent_url}) = {agent_native_balance:g} xDAI"
+            + f"\n[Service Safe]({service_url}) = {safe_native_balance:g} xDAI  "
+            + f"{safe_wrapped_native_balance:g} wxDAI  {safe_olas_balance:g} OLAS"
+            + f"\n[Master EOA]({master_eoa_url}) = {master_eoa_native_balance:g} xDAI"
+            + f"\n[Master Safe]({master_safe_url}) = {master_safe_native_balance:g} xDAI  "
+            + f"{master_safe_olas_balance:g} OLAS"
+        )
+
     async def balance(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ):  # pylint: disable=unused-argument
@@ -362,44 +397,7 @@ Next epoch: {status['epoch_end']}"""
                     errors.append(f"[{service_name}] Error: {str(error)}")
                     continue
 
-                balances = result["balances"]
-                agent_native_balance = balances["agent_eoa_native_balance"]
-                safe_native_balance = balances["service_safe_native_balance"]
-                safe_wrapped_native_balance = balances[
-                    "service_safe_wrapped_native_balance"
-                ]
-                safe_olas_balance = balances["service_safe_olas_balance"]
-                master_eoa_native_balance = balances["master_eoa_native_balance"]
-                master_safe_native_balance = balances["master_safe_native_balance"]
-                master_safe_olas_balance = balances["master_safe_olas_balance"]
-                master_safes = result["master_safes"]
-                if master_safes is None:
-                    raise ValueError("Master wallet safes not found")
-                agent_url = GNOSISSCAN_ADDRESS_URL.format(
-                    address=result["agent_address"]
-                )
-                service_url = GNOSISSCAN_ADDRESS_URL.format(
-                    address=result["service_safe"]
-                )
-                master_eoa_url = GNOSISSCAN_ADDRESS_URL.format(
-                    address=result["master_eoa_address"]
-                )
-                master_safe_url = GNOSISSCAN_ADDRESS_URL.format(
-                    address=master_safes[Chain.from_string(result["home_chain"])]
-                )
-                message = (
-                    r"\["
-                    + escape_markdown_v2(service_name)
-                    + r"]"
-                    + f"\n[Agent EOA]({agent_url}) = {agent_native_balance:g} xDAI"
-                    + f"\n[Service Safe]({service_url}) = {safe_native_balance:g} xDAI  "
-                    + f"{safe_wrapped_native_balance:g} wxDAI  {safe_olas_balance:g} OLAS"
-                    + f"\n[Master EOA]({master_eoa_url}) = {master_eoa_native_balance:g} xDAI"
-                    + f"\n[Master Safe]({master_safe_url}) = {master_safe_native_balance:g} xDAI  "
-                    + f"{master_safe_olas_balance:g} OLAS"
-                )
-
-                messages.append(message)
+                messages.append(_format_balance_message(service_name, result))
             if errors:
                 messages.append("\n".join(errors))
 
