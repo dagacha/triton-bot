@@ -12,12 +12,6 @@ from datetime import datetime
 from typing import List, Optional, Tuple, cast
 
 from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
-from requests.exceptions import ConnectionError as RequestsConnectionError
-from triton.exceptions import ContractExecutionError, InsufficientFundsError, RateLimitError
-from triton.rpc import configure_runtime_rpcs
-
-configure_runtime_rpcs()
-
 from operate.cli import OperateApp
 from operate.data import DATA_DIR
 from operate.data.contracts.mech_activity.contract import MechActivityContract
@@ -28,6 +22,7 @@ from operate.ledger import get_default_ledger_api
 from operate.ledger.profiles import OLAS, get_staking_contract
 from operate.operate_types import Chain, LedgerType
 from operate.utils import gnosis as gnosis_utils
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from triton.chain import (
     get_native_balance,
@@ -35,6 +30,14 @@ from triton.chain import (
     get_staking_status,
     get_wrapped_native_balance,
 )
+from triton.exceptions import (
+    ContractExecutionError,
+    InsufficientFundsError,
+    RateLimitError,
+)
+from triton.rpc import configure_runtime_rpcs
+
+configure_runtime_rpcs()
 
 SAFE_TRANSFER_FALLBACK_GAS = int(os.getenv("SAFE_TRANSFER_FALLBACK_GAS", "500000"))
 
@@ -154,7 +157,9 @@ def _transact_with_receipt(ledger_api, crypto, tx_builder) -> dict:
                     raise_on_try=True,
                 )
 
-            tx_receipt = ledger_api.api.eth.get_transaction_receipt(cast(str, tx_digest))
+            tx_receipt = ledger_api.api.eth.get_transaction_receipt(
+                cast(str, tx_digest)
+            )
             if tx_receipt is not None:
                 return tx_receipt
         except RequestsConnectionError as e:
@@ -204,7 +209,14 @@ def transfer_erc20_from_safe_compat(
     owner = ledger_api.api.to_checksum_address(crypto.address)
 
     def _build_tx(*args, **kwargs) -> dict:  # pylint: disable=unused-argument
-        safe_tx_hash = gnosis_utils.registry_contracts.gnosis_safe.get_raw_safe_transaction_hash(
+        from packages.valory.contracts.gnosis_safe.contract import (  # type: ignore[import-untyped]
+            GnosisSafeContract,
+        )
+
+        safe_contract = cast(
+            GnosisSafeContract, gnosis_utils.registry_contracts.gnosis_safe
+        )
+        safe_tx_hash = safe_contract.get_raw_safe_transaction_hash(
             ledger_api=ledger_api,
             contract_address=safe,
             value=0,
@@ -221,7 +233,7 @@ def transfer_erc20_from_safe_compat(
             )[2:]
         }
         gas_pricing = _normalize_gas_pricing(ledger_api.try_get_gas_pricing())
-        tx_dict = gnosis_utils.registry_contracts.gnosis_safe.get_raw_safe_transaction(
+        tx_dict = safe_contract.get_raw_safe_transaction(
             ledger_api=ledger_api,
             contract_address=safe,
             sender_address=owner,
@@ -424,7 +436,12 @@ class TritonService:
                 service_config_id=self.service.service_config_id,
                 chain=self.service.home_chain,
             )
-        except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
+        except (
+            ChainInteractionError,
+            ChainTimeoutError,
+            RPCError,
+            RequestsConnectionError,
+        ):
             self.logger.error("Failed to claim rewards. %s", traceback.format_exc())
 
         return 0
@@ -440,7 +457,12 @@ class TritonService:
 
         try:
             master_safe_olas_balance = get_olas_balance(master_safe)
-        except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
+        except (
+            ChainInteractionError,
+            ChainTimeoutError,
+            RPCError,
+            RequestsConnectionError,
+        ):
             self.logger.error("Failed to get OLAS balance. %s", traceback.format_exc())
             master_safe_olas_balance = 0
 
@@ -464,7 +486,12 @@ class TritonService:
                 withdrawals.append(
                     (tx_hash, master_safe_olas_balance / 1e18, "Master Safe")
                 )
-            except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
+            except (
+                ChainInteractionError,
+                ChainTimeoutError,
+                RPCError,
+                RequestsConnectionError,
+            ):
                 self.logger.error("Failed to withdraw OLAS. %s", traceback.format_exc())
         else:
             self.logger.info("No Master safe OLAS to withdraw")
@@ -492,7 +519,12 @@ class TritonService:
                     amount=service_safe_olas_balance * 1e18,
                 )
                 withdrawals.append((tx_hash, service_safe_olas_balance, "Service Safe"))
-        except (ChainInteractionError, ChainTimeoutError, RPCError, RequestsConnectionError):
+        except (
+            ChainInteractionError,
+            ChainTimeoutError,
+            RPCError,
+            RequestsConnectionError,
+        ):
             self.logger.error(
                 "Failed to withdraw OLAS from service safe. %s", traceback.format_exc()
             )

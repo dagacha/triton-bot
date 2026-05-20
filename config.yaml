@@ -1,2 +1,9 @@
 operators:
-  agent1: /path/to/quickstart
+  trader13: /path/to/trader13/quickstart
+  trader14: /path/to/trader14/quickstart
+  trader15: /path/to/trader15/quickstart
+  trader22: /path/to/trader22/quickstart
+  trader29: /path/to/trader29/quickstart
+  trader36: /path/to/trader36/quickstart
+  trader39: /path/to/trader39/quickstart
+  trader40: /path/to/trader40/quickstart

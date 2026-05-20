@@ -16,7 +16,6 @@ from urllib.parse import urlencode
 
 import pytz
 import requests
-
 from operate.constants import IPFS_ADDRESS
 from operate.ledger.profiles import WRAPPED_NATIVE_ASSET
 from operate.operate_types import ChainType
@@ -169,7 +168,8 @@ def get_olas_price() -> float | None:
     """Get OLAS price"""
     now = time.monotonic()
     with _cache_lock:
-        if _price_cache["expires_at"] > now:
+        expires_at = _price_cache["expires_at"]
+        if expires_at is not None and expires_at > now:
             return _price_cache["value"]
 
     url = "https://api.coingecko.com/api/v3/simple/price?" + urlencode(

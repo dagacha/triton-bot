@@ -8,6 +8,7 @@ from operate.operate_types import Chain
 # Ensure env vars are loaded (constants.py is the canonical location)
 from triton import constants  # noqa: F401
 
+
 def configure_runtime_rpcs() -> None:
     """Apply RPC URLs from the environment to operate's runtime caches."""
     gnosis_rpc = os.getenv("GNOSIS_RPC")
