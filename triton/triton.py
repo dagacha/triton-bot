@@ -586,25 +586,33 @@ Next epoch: {status['epoch_end']}"""
     async def run_all_command(
         update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        """Run run_all_traders.sh from the user's home directory."""
+        """Run run_logs_and_maybe_cron_all.sh from the user's home directory.
+
+        This is the smart-restart entry point: it inspects each trader's logs
+        and the on-chain OLAS cap and only (re)starts the ones that actually
+        need it. The script is idempotent and safe to invoke outside the
+        cron schedule.
+        """
         try:
             if not update.message:
                 logger.error("Cannot send message, update.message is None")
                 return
 
-            script_path = Path.home() / "run_all_traders.sh"
+            script_path = Path.home() / "run_logs_and_maybe_cron_all.sh"
             if not script_path.is_file():
                 await update.message.reply_text(text=f"Script not found: {script_path}")
                 return
 
-            await update.message.reply_text(text="Running run_all_traders.sh...")
+            await update.message.reply_text(
+                text="Running run_logs_and_maybe_cron_all.sh (smart restart)..."
+            )
             return_code, output = await _run_blocking_call(
                 _run_script_command, script_path, timeout=None
             )
             summary = (
-                "run_all_traders.sh finished successfully."
+                "run_logs_and_maybe_cron_all.sh finished successfully."
                 if return_code == 0
-                else f"run_all_traders.sh failed with exit code {return_code}."
+                else f"run_logs_and_maybe_cron_all.sh failed with exit code {return_code}."
             )
             await update.message.reply_text(
                 text=summary + "\n\n" + _format_script_output(output)

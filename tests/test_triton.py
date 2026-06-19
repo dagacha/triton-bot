@@ -467,7 +467,7 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
         )
 
     def test_run_all_handler_success(self, mock_triton_app, mock_update):
-        """Test /run_all executes run_all_traders.sh."""
+        """Test /run_all executes the smart-restart orchestrator."""
         run_all_handler = mock_triton_app("run_all_command")
         context = Mock(spec=ContextTypes.DEFAULT_TYPE)
         context.args = []
@@ -476,17 +476,17 @@ Total rewards = 231 OLAS (21 accrued + 200 in agent safes + 10 in master safes) 
             patch("triton.triton.Path.is_file", return_value=True),
             patch(
                 "triton.triton._run_blocking_call",
-                new=AsyncMock(return_value=(0, "all started")),
+                new=AsyncMock(return_value=(0, "smart restart output")),
             ),
         ):
             asyncio.run(run_all_handler(mock_update, context))
 
         assert mock_update.message.reply_text.call_count == 2
         mock_update.message.reply_text.assert_any_call(
-            text="Running run_all_traders.sh..."
+            text="Running run_logs_and_maybe_cron_all.sh (smart restart)..."
         )
         mock_update.message.reply_text.assert_any_call(
-            text="run_all_traders.sh finished successfully.\n\nall started"
+            text="run_logs_and_maybe_cron_all.sh finished successfully.\n\nsmart restart output"
         )
 
     def test_stop_all_handler_success(self, mock_triton_app, mock_update):
