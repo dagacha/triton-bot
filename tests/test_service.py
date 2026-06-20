@@ -49,6 +49,25 @@ class TestTritonService:
         mock_chain_config.chain_data = mock_chain_data
         
         self.mock_service.chain_configs = {"gnosis": mock_chain_config}
+
+    @pytest.fixture
+    def mock_staking_fast_path(self):
+        """Patch the fast-path staking-contract resolution in staking_contract_address.
+
+        Replaces operate's slow ``_get_current_staking_program`` (which the
+        production code no longer calls) with mocked ``StakingManager`` and
+        ``registry_contracts`` seams: ``ownerOf`` returns a fake owner address
+        and ``getStakingState`` returns STAKED (1).
+        """
+        with patch("triton.service.StakingManager") as mock_sm, \
+             patch("triton.service.registry_contracts") as mock_reg:
+            sm = MagicMock()
+            mock_sm.return_value = sm
+            sm.staking_ctr.get_instance.return_value.functions.getStakingState.return_value.call.return_value = 1  # StakingState.STAKED
+            mock_reg.service_registry.get_instance.return_value.functions.ownerOf.return_value.call.return_value = (
+                "0xowner1111111111111111111111111111111111111111"
+            )
+            yield mock_sm, mock_reg, sm
     
     @patch.dict(os.environ, {"WITHDRAWAL_ADDRESS": "0x1111111111111111111111111111111111111111"})
     def test_init_with_withdrawal_address(self):
@@ -95,32 +114,32 @@ class TestTritonService:
         assert service.service_safe == "0x1234567890abcdef1234567890abcdef12345678"
     
     @patch('triton.service.get_staking_contract')
-    def test_staking_contract_address_property(self, mock_get_staking_contract):
+    def test_staking_contract_address_property(self, mock_get_staking_contract, mock_staking_fast_path):
         """Test staking_contract_address property"""
         mock_get_staking_contract.return_value = "0x2222222222222222222222222222222222222222"
-        self.mock_service_manager._get_current_staking_program.return_value = "program_1"
-        
+
         service = TritonService(self.mock_operate, "test_config_id")
-        
+
         assert service.staking_contract_address == "0x2222222222222222222222222222222222222222"
         mock_get_staking_contract.assert_called_once_with(
             chain="gnosis",
-            staking_program_id="program_1"
+            staking_program_id="0xowner1111111111111111111111111111111111111111"
         )
-    
-    def test_staking_contract_address_property_key_error(self):
+
+    def test_staking_contract_address_property_key_error(self, mock_staking_fast_path):
         """Test staking_contract_address property with KeyError"""
-        self.mock_service_manager._get_current_staking_program.side_effect = KeyError("Not found")
-        
+        _mock_sm, _mock_reg, sm = mock_staking_fast_path
+        sm.staking_ctr.get_instance.side_effect = KeyError("Not found")
+
         service = TritonService(self.mock_operate, "test_config_id")
-        
+
         with pytest.raises(ValueError, match="Failed to get staking contract address"):
             service.staking_contract_address
     
     @patch('triton.service.get_staking_status')
     @patch('triton.service.get_staking_contract')
     @patch('triton.service.RequesterActivityCheckerContract')
-    def test_get_staking_status_success_with_mech_marketplace(self, mock_requester_contract, mock_get_staking_contract, mock_get_staking_status):
+    def test_get_staking_status_success_with_mech_marketplace(self, mock_requester_contract, mock_get_staking_contract, mock_get_staking_status, mock_staking_fast_path):
         """Test get_staking_status method success when mechMarketplace call works"""
         mock_get_staking_contract.return_value = "0x2222222222222222222222222222222222222222"
         mock_get_staking_status.return_value = {
@@ -129,8 +148,7 @@ class TestTritonService:
             "required_mech_requests": 10,
             "epoch_end": "2023-01-01 12:00:00 UTC"
         }
-        self.mock_service_manager._get_current_staking_program.return_value = "program_1"
-        
+
         # Mock the safe tx builder and staking params
         mock_sftxb = MagicMock()
         mock_sftxb.get_staking_params.return_value = {"activity_checker": "0xactivity123"}
@@ -160,7 +178,7 @@ class TestTritonService:
     @patch('triton.service.get_staking_contract')
     @patch('triton.service.RequesterActivityCheckerContract')
     @patch('triton.service.MechActivityContract')
-    def test_get_staking_status_success_with_agent_mech(self, mock_mech_contract, mock_requester_contract, mock_get_staking_contract, mock_get_staking_status):
+    def test_get_staking_status_success_with_agent_mech(self, mock_mech_contract, mock_requester_contract, mock_get_staking_contract, mock_get_staking_status, mock_staking_fast_path):
         """Test get_staking_status method success when mechMarketplace fails but agentMech works"""
         mock_get_staking_contract.return_value = "0x2222222222222222222222222222222222222222"
         mock_get_staking_status.return_value = {
@@ -169,8 +187,7 @@ class TestTritonService:
             "required_mech_requests": 10,
             "epoch_end": "2023-01-01 12:00:00 UTC"
         }
-        self.mock_service_manager._get_current_staking_program.return_value = "program_1"
-        
+
         # Mock the safe tx builder and staking params
         mock_sftxb = MagicMock()
         mock_sftxb.get_staking_params.return_value = {"activity_checker": "0xactivity123"}
@@ -203,7 +220,7 @@ class TestTritonService:
     @patch('triton.service.get_staking_contract')
     @patch('triton.service.RequesterActivityCheckerContract')
     @patch('triton.service.MechActivityContract')
-    def test_get_staking_status_success_with_fallback_mech(self, mock_mech_contract, mock_requester_contract, mock_get_staking_contract, mock_get_staking_status):
+    def test_get_staking_status_success_with_fallback_mech(self, mock_mech_contract, mock_requester_contract, mock_get_staking_contract, mock_get_staking_status, mock_staking_fast_path):
         """Test get_staking_status method success when both contract calls fail and fallback is used"""
         mock_get_staking_contract.return_value = "0x2222222222222222222222222222222222222222"
         mock_get_staking_status.return_value = {
@@ -212,8 +229,7 @@ class TestTritonService:
             "required_mech_requests": 10,
             "epoch_end": "2023-01-01 12:00:00 UTC"
         }
-        self.mock_service_manager._get_current_staking_program.return_value = "program_1"
-        
+
         # Mock the safe tx builder and staking params
         mock_sftxb = MagicMock()
         mock_sftxb.get_staking_params.return_value = {"activity_checker": "0xactivity123"}
