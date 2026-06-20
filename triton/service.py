@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import List, Optional, Tuple, cast
 
+from autonomy.chain.base import registry_contracts
 from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
 from operate.cli import OperateApp
 from operate.data import DATA_DIR
@@ -19,8 +20,10 @@ from operate.data.contracts.requester_activity_checker.contract import (
     RequesterActivityCheckerContract,
 )
 from operate.ledger import get_default_ledger_api
-from operate.ledger.profiles import OLAS, get_staking_contract
+from operate.ledger.profiles import CONTRACTS, OLAS, get_staking_contract
 from operate.operate_types import Chain, LedgerType
+from operate.services.protocol import StakingManager, StakingState
+from operate.services.service import NON_EXISTENT_TOKEN
 from operate.utils import gnosis as gnosis_utils
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
@@ -300,23 +303,72 @@ class TritonService:
         """Get the service safe address"""
         return self.service.chain_configs[self.service.home_chain].chain_data.multisig
 
+    # Fast path: when a service is staked, ownerOf(service_id) on the service
+    # registry returns the staking contract address, and a single
+    # getStakingState call confirms the service is bonded to it. This bypasses
+    # service_manager._get_current_staking_program, which maps the owner
+    # address back to a staking-program id by iterating the static STAKING
+    # table and falls back to querying *every* known staking program (~47 RPC
+    # calls, ~10s) when the contract isn't in that table. We only need the
+    # address here, and get_staking_contract passes an unknown program id
+    # (i.e. an address) straight through, so the program-id round trip is
+    # unnecessary.
     @property
     def staking_contract_address(self) -> str:
-        """Get the staking contract address"""
+        """Get the staking contract address (fast path)."""
         try:
-            current_staking_program = self.service_manager._get_current_staking_program(  # pylint: disable=protected-access  # noqa: E501
-                service=self.service, chain=self.service.home_chain
+            chain = self.service.home_chain
+            chain_enum = Chain.from_string(chain)  # type: ignore[attr-defined]
+            service_id = self.service_id
+            if service_id == NON_EXISTENT_TOKEN:
+                raise ValueError(
+                    "Staking contract address not found: service has no on-chain token."
+                )
+
+            ledger_config = self.service.chain_configs[chain].ledger_config
+            staking_manager = StakingManager(chain_enum, rpc=ledger_config.rpc)
+            ledger_api = staking_manager.ledger_api
+
+            service_registry = registry_contracts.service_registry.get_instance(
+                ledger_api=ledger_api,
+                contract_address=CONTRACTS[chain_enum]["service_registry"],
             )
+            owner = service_registry.functions.ownerOf(service_id).call()
+
+            # `owner` is the staking contract address when the service is
+            # staked; otherwise it's the service owner and getStakingState
+            # will either revert or return UNSTAKED.
+            try:
+                state = StakingState(
+                    staking_manager.staking_ctr.get_instance(
+                        ledger_api=ledger_api,
+                        contract_address=owner,
+                    )
+                    .functions.getStakingState(service_id)
+                    .call()
+                )
+            except (ChainInteractionError, RPCError, RequestsConnectionError):
+                # `owner` is not a staking contract → service is not staked.
+                raise ValueError(
+                    "Staking contract address not found: service is not staked."
+                )
+
+            if state == StakingState.UNSTAKED:
+                raise ValueError(
+                    "Staking contract address not found: service is not staked."
+                )
+
             staking_contract_address = get_staking_contract(
-                chain=self.service.home_chain,
-                staking_program_id=current_staking_program,
+                chain=chain,
+                staking_program_id=owner,
             )
             if not staking_contract_address:
                 raise ValueError(
-                    f"Staking contract address not found for {current_staking_program=}."
+                    f"Staking contract address not found for owner={owner}."
                 )
-
             return staking_contract_address
+        except ValueError:
+            raise
         except KeyError as e:
             raise ValueError("Failed to get staking contract address.") from e
 
