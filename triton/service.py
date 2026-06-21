@@ -26,6 +26,7 @@ from operate.services.protocol import StakingManager, StakingState
 from operate.services.service import NON_EXISTENT_TOKEN
 from operate.utils import gnosis as gnosis_utils
 from requests.exceptions import ConnectionError as RequestsConnectionError
+from web3.exceptions import ContractLogicError as Web3ContractLogicError
 
 from triton.chain import (
     get_native_balance,
@@ -347,7 +348,7 @@ class TritonService:
                     .functions.getStakingState(service_id)
                     .call()
                 )
-            except (ChainInteractionError, RPCError, RequestsConnectionError):
+            except (ChainInteractionError, RPCError, RequestsConnectionError, Web3ContractLogicError):
                 # `owner` is not a staking contract → service is not staked.
                 raise ValueError(
                     "Staking contract address not found: service is not staked."
