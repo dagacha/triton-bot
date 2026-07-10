@@ -88,6 +88,75 @@ def _normalize_gas_pricing(gas_pricing: object) -> dict:
     return {}
 
 
+def _patch_multisend_encode_data() -> None:
+    """
+    Monkey-patch encode_data in the multisend contract to handle str data.
+
+    web3.py 7.x returns str (hex-encoded) from encode_abi(), but the
+    multisend contract's encode_data() expects bytes and uses cast(bytes, ...)
+    which does not perform an actual conversion. This causes:
+        TypeError: can't concat str to bytes
+
+    The AEA / open-autonomy package manager deliberately replaces the
+    ``packages`` module in ``sys.modules`` with a fake namespace module
+    (``__path__ = None``), so we cannot rely on normal dotted-path imports.
+    Instead we find the real module by scanning site-packages and load it
+    directly via importlib.
+    """
+    import importlib.util
+    import os
+    import sys
+
+    _ENCODE_MODULE = "packages.valory.contracts.multisend.contract"
+
+    # If the module is already loaded into sys.modules and hasn't been broken
+    # by the AEA package manager, use it directly.
+    if _ENCODE_MODULE in sys.modules:
+        _mod = sys.modules[_ENCODE_MODULE]
+    else:
+        # Find the physical location of the module on disk.
+        site_packages_dirs = [
+            p
+            for p in sys.path
+            if os.path.isdir(os.path.join(p, "packages"))
+        ]
+        if not site_packages_dirs:
+            return  # cannot patch
+        module_path = os.path.join(
+            site_packages_dirs[0],
+            "packages", "valory", "contracts", "multisend", "contract.py",
+        )
+        if not os.path.isfile(module_path):
+            return  # cannot patch
+
+        spec = importlib.util.spec_from_file_location(
+            _ENCODE_MODULE,
+            module_path,
+        )
+        if spec is None or spec.loader is None:
+            return  # cannot patch
+        _mod = importlib.util.module_from_spec(spec)
+        sys.modules[_ENCODE_MODULE] = _mod
+        spec.loader.exec_module(_mod)
+
+    _orig = _mod.encode_data
+
+    if getattr(_orig, "_patched", False):
+        return  # already patched
+
+    def _patched(tx):
+        """Patched encode_data that handles both str and bytes data."""
+        data = tx.get("data", b"")
+        if isinstance(data, str):
+            data = bytes.fromhex(data.removeprefix("0x"))
+        tx_copy = dict(tx)
+        tx_copy["data"] = data
+        return _orig(tx_copy)
+
+    _patched._patched = True  # type: ignore[attr-defined]
+    _mod.encode_data = _patched
+
+
 def _should_retry(error: str) -> bool:
     """Return whether the chain interaction should be retried."""
     if "Transaction with hash" in error and "not found" in error:
@@ -272,6 +341,10 @@ class TritonService:
 
     def __init__(self, operate: OperateApp, service_config_id: str) -> None:
         """Constructor"""
+        # Monkey-patch: encode_data in multisend contract must handle str data.
+        # web3.py 7.x returns str from encode_abi(), but encode_data expects bytes.
+        _patch_multisend_encode_data()
+
         self.service_manager = operate.service_manager()
         self.master_wallet = operate.wallet_manager.load(
             ledger_type=LedgerType.ETHEREUM
