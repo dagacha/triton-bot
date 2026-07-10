@@ -198,6 +198,13 @@ def _ensure_safe_tx_gas(ledger_api, tx_dict: dict) -> dict:
 
     estimate_tx = dict(result)
     estimate_tx.pop("gas", None)
+    # web3.py 7.x estimate_gas may choke on nested dict values, so strip
+    # any non-primitive values before passing to the RPC call.
+    estimate_tx = {
+        k: v
+        for k, v in estimate_tx.items()
+        if isinstance(v, (str, bytes, int, bool, type(None)))
+    }
     try:
         result["gas"] = int(ledger_api.api.eth.estimate_gas(estimate_tx)) + 50_000
     except Exception:  # pylint: disable=broad-except
