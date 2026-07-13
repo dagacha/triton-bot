@@ -80,11 +80,9 @@ Point triton to all your trader_quickstart folder locations (they have to contai
 
 ## Run Triton as a python script
 
-1. Copy the env file:
-
-    ```bash
-    poetry run python run.py
-    ```
+```bash
+poetry run python run.py
+```
 
 ## Run the tests
 
@@ -119,7 +117,23 @@ poetry run pytest -q tests/test_triton.py
     systemctl status triton.service
     ```
 
-## Useful commands
+## Telegram bot commands
+
+| Command | Description |
+|---------|-------------|
+| `/staking_status` | Check staking status, accrued rewards, and mech request progress for all services |
+| `/balance` | Check wallet balances (Agent EOA, Service Safe, Master EOA, Master Safe) |
+| `/claim` | Manually claim accrued staking rewards into the Master Safe |
+| `/withdraw` | Withdraw OLAS from Master/Service Safes to the configured withdrawal address |
+| `/slots` | Check available slots on all staking contracts |
+| `/jobs` | List the currently scheduled periodic jobs |
+| `/ip` | Get the bot server's public IP address |
+| `/run <id>` | Run `run_service_cron.sh` for a trader (e.g. `/run 21` or `/run trader21`) |
+| `/stop <id>` | Run `stop_service_cron.sh` for a trader |
+| `/run_all` | Run `run_all_traders.sh` from the user's home directory |
+| `/stop_all` | Run `stop_all_traders.sh` from the user's home directory |
+
+## Useful commands (systemd)
 
 ```bash
 make install  # install the service (systemd)
