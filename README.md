@@ -257,7 +257,7 @@ This avoids ~47 RPC calls that the standard `_get_current_staking_program` path 
 
 ### Error handling
 
-- **Transient network errors** (`TimedOut`, `NetworkError`, `httpx.*` errors) are logged at INFO level and silently ignored to avoid spamming the chat during Telegram long-poll reconnects
+- **Transient network errors** (`TimedOut`, `NetworkError`, and selected `httpx` transport/timeout errors: `RemoteProtocolError`, `ReadError`, `WriteError`, `ConnectError`, `ConnectTimeout`, `ReadTimeout`, `PoolTimeout`) are logged at INFO level and silently ignored to avoid spamming the chat during Telegram long-poll reconnects
 - **All other errors** are logged and sent to the configured Telegram chat via `report_error`
 
 ## Useful commands (systemd)
@@ -295,7 +295,7 @@ make code-check  # run isort, black, darglint, flake8, mypy, pylint
 
 ### CI
 
-The repository includes a GitHub Actions workflow (`.github/workflows/common_checks.yml`) that runs linting and tests on push/PR to the `main` branch across Ubuntu, Windows, and macOS.
+The repository includes a GitHub Actions workflow (`.github/workflows/common_checks.yml`) that runs linting on Ubuntu and non-blocking tests (`continue-on-error: true`) on Ubuntu, Windows, and macOS on push/PR to the `main` branch.
 
 ## What it looks like
 
