@@ -622,9 +622,7 @@ Next epoch: {status['epoch_end']}"""
                 await update.message.reply_text(text=f"Script not found: {script_path}")
                 return
 
-            await update.message.reply_text(
-                text="Running run_all_traders.sh..."
-            )
+            await update.message.reply_text(text="Running run_all_traders.sh...")
             return_code, output = await _run_blocking_call(
                 _run_script_command, script_path, timeout=None
             )
