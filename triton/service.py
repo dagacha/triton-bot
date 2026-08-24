@@ -5,11 +5,12 @@ This module defines the TritonService class, which handles the operations of the
 import binascii
 import logging
 import os
+import threading
 import time
 import traceback
 from collections.abc import Mapping
 from datetime import datetime
-from typing import List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, cast
 
 from autonomy.chain.base import registry_contracts
 from autonomy.chain.exceptions import ChainInteractionError, ChainTimeoutError, RPCError
@@ -40,6 +41,11 @@ from triton.exceptions import (
     RateLimitError,
 )
 from triton.rpc import configure_runtime_rpcs
+
+if TYPE_CHECKING:  # pragma: no cover
+    from packages.valory.contracts.gnosis_safe.contract import (  # type: ignore[import-untyped]
+        GnosisSafeContract,
+    )
 
 configure_runtime_rpcs()
 
@@ -199,27 +205,39 @@ def _transact_with_receipt(ledger_api, crypto, tx_builder) -> dict:
     raise ChainTimeoutError("Timed out when waiting for transaction to go through")
 
 
+# Autonomy/operate lazily load contracts into shared module-global state without
+# a lock. When several TritonService tasks run concurrently (see _run_service_tasks),
+# a thread can race another thread's Contract.from_dir() and intermittently fail with
+# "Contract class '...' not found". To fix that we only need to serialize the lazy
+# registry lookups; hold the lock just long enough to obtain the resolved contract
+# instances, then release it before any RPC/signing/submission/polling. Do not call
+# lock-taking helpers while holding this lock (non-reentrant).
+REGISTRY_LOCK = threading.Lock()
+
+
 def transfer_erc20_from_safe_compat(
     ledger_api, crypto, safe: str, token: str, to: str, amount: float | int
 ) -> Optional[str]:
     """Transfer ERC20 assets from safe, normalizing malformed gas price fields."""
     amount = int(amount)
-    instance = gnosis_utils.registry_contracts.erc20.get_instance(
-        ledger_api=ledger_api,
-        contract_address=token,
-    )
-    txd = instance.functions.transfer(to, amount)._encode_transaction_data()
+    with REGISTRY_LOCK:
+        # Obtain the (lazily-initialized) ERC20 instance and Gnosis Safe contract under
+        # the lock, then release it before the expensive tx flow below.
+        instance = gnosis_utils.registry_contracts.erc20.get_instance(
+            ledger_api=ledger_api,
+            contract_address=token,
+        )
+        # String cast: mypy resolves the type against the TYPE_CHECKING import above, and
+        # it avoids the pylint "used-before-assignment" false-positive that a named reference
+        # triggers on the following line.
+        safe_contract = cast(
+            "GnosisSafeContract", gnosis_utils.registry_contracts.gnosis_safe
+        )
 
+    txd = instance.functions.transfer(to, amount)._encode_transaction_data()
     owner = ledger_api.api.to_checksum_address(crypto.address)
 
     def _build_tx(*args, **kwargs) -> dict:  # pylint: disable=unused-argument
-        from packages.valory.contracts.gnosis_safe.contract import (  # type: ignore[import-untyped]
-            GnosisSafeContract,
-        )
-
-        safe_contract = cast(
-            GnosisSafeContract, gnosis_utils.registry_contracts.gnosis_safe
-        )
         safe_tx_hash = safe_contract.get_raw_safe_transaction_hash(
             ledger_api=ledger_api,
             contract_address=safe,
@@ -317,6 +335,11 @@ class TritonService:
     @property
     def staking_contract_address(self) -> str:
         """Get the staking contract address (fast path)."""
+        with REGISTRY_LOCK:
+            return self._staking_contract_address_locked()
+
+    def _staking_contract_address_locked(self) -> str:
+        """Resolve the staking contract address under the registry lock."""
         try:
             chain = self.service.home_chain
             chain_enum = Chain.from_string(chain)  # type: ignore[attr-defined]
@@ -348,7 +371,12 @@ class TritonService:
                     .functions.getStakingState(service_id)
                     .call()
                 )
-            except (ChainInteractionError, RPCError, RequestsConnectionError, Web3ContractLogicError):
+            except (
+                ChainInteractionError,
+                RPCError,
+                RequestsConnectionError,
+                Web3ContractLogicError,
+            ):
                 # `owner` is not a staking contract → service is not staked.
                 raise ValueError(
                     "Staking contract address not found: service is not staked."
@@ -485,10 +513,11 @@ class TritonService:
 
         self.logger.info("Claiming rewards")
         try:
-            return self.service_manager.claim_on_chain_from_safe(
-                service_config_id=self.service.service_config_id,
-                chain=self.service.home_chain,
-            )
+            with REGISTRY_LOCK:
+                return self.service_manager.claim_on_chain_from_safe(
+                    service_config_id=self.service.service_config_id,
+                    chain=self.service.home_chain,
+                )
         except (
             ChainInteractionError,
             ChainTimeoutError,
